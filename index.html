@@ -24,17 +24,98 @@
 </head>
 <body>
 
+  
+<!-- Header -->
 <header>
   <div class="header-layout">
     <div class="logo-container">
       <img src="images/dcu_logo.jpg" class="dcu-logo-left" alt="DCU Logo" />
     </div>
     <div class="header-content">
-      <h1>Phone GPS + ESP32 Sensors → ThingSpeak</h1>
-      <p class="tagline">Channel <strong>2960675</strong> • fields 1–6 (sensors), 7–8 (GPS)</p>
+      <h1>Car Portable Urban Air Quality Monitor</h1>
+      <p class="tagline">Live CO₂, PM, RH/Temp via ThingSpeak + GPS (opt-in)</p>
+      <p class="author">Lauren Dwyer | Student No. 38529 | MECE1</p>
     </div>
   </div>
 </header>
+
+<nav class="topnav">
+  <ul>
+    <li><a href="#" onclick="showSection('sensor-overview')" class="navlink active">Sensor Overview</a></li>
+    <li><a href="#" onclick="showSection('hardware')" class="navlink">Hardware</a></li>
+    <li><a href="#" onclick="showSection('enclosure')" class="navlink">Enclosure & Mounting</a></li>
+    <li><a href="#" onclick="showSection('deployment')" class="navlink">Deployment</a></li>
+  </ul>
+</nav>
+
+<!-- Sensor Section -->
+<section id="sensor-overview">
+  <h2>Sensor Overview</h2>
+
+  <label for="sensorSelect"><strong>View by Sensor:</strong></label>
+  <select id="sensorSelect" onchange="handleSensorSelect(this.value)">
+    <option value="none">-- Select --</option>
+    <option value="scd30">SCD30 (CO₂, Temp, RH)</option>
+    <option value="sps30">SPS30 (PM1.0, PM2.5, PM10)</option>
+    <option value="mics">MiCS-4514 (NO₂)</option>
+  </select>
+
+  <div class="tabs">
+    <button class="tablink" onclick="showTab('co2', this)">CO₂</button>
+    <button class="tablink" onclick="showTab('pm25', this)">PM2.5</button>
+    <button class="tablink" onclick="showTab('pm10', this)">PM10</button>
+    <button class="tablink" onclick="showTab('pm1', this)">PM1.0</button>
+    <button class="tablink" onclick="showTab('temp', this)">Temp</button>
+    <button class="tablink" onclick="showTab('rh', this)">Humidity</button>
+    <button class="tablink" onclick="showTab('gps', this)">GPS</button>
+  </div>
+
+  <div id="sensorTabs" class="tab-group">
+    <div id="co2" class="tabcontent tab-box">
+      <p><strong>Latest CO₂:</strong> <span id="co2val">Loading...</span> ppm</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/4?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="pm25" class="tabcontent tab-box">
+      <p><strong>Latest PM2.5:</strong> <span id="pm25val">Loading...</span> µg/m³</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/2?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="pm10" class="tabcontent tab-box">
+      <p><strong>Latest PM10:</strong> <span id="pm10val">Loading...</span> µg/m³</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/3?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="pm1" class="tabcontent tab-box">
+      <p><strong>Latest PM1.0:</strong> <span id="pm1val">Loading...</span> µg/m³</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/1?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="temp" class="tabcontent tab-box">
+      <p><strong>Latest Temp:</strong> <span id="tempval">Loading...</span> °C</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/5?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="rh" class="tabcontent tab-box">
+      <p><strong>Latest Humidity:</strong> <span id="humval">Loading...</span> %</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/6?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <!-- GPS TAB: manual start button; uses phone GPS -->
+    <div id="gps" class="tabcontent tab-box">
+      <p>
+        <strong>Latest GPS:</strong> <span id="latDisp">—</span>, <span id="lonDisp">—</span>
+        <button id="startGpsBtn" class="btn primary">Start Test</button>
+        <span id="gpsStatus" class="status"></span>
+      </p>
+      <iframe src="https://thingspeak.com/channels/2960675/maps/channel_show"></iframe>
+      <section id="location">
+        <h2>My Live Location</h2>
+        <div id="map"></div>
+      </section>
+    </div>
+  </div>
+</section>
 
 <section class="card" id="gps-card">
   <h2>Test Runner</h2>
