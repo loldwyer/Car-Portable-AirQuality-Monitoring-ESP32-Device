@@ -20,96 +20,57 @@
     .card { max-width: 1200px; margin: 1rem auto; background:#fff; padding:1rem; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,.08); }
     .kv { font-size:.95rem; color:#444; }
     .kv span { display:inline-block; min-width:7ch; font-weight:600; }
-    section {
-  padding: 2rem 1rem;
-  max-width: 1200px;
-  margin: auto;
-}
+    section { padding: 2rem 1rem; max-width: 1200px; margin: auto;}
+    /* ===== NAV ===== */
+    .topnav { background-color: #ffffff; border-bottom: 1px solid #ddd; position: sticky; top: 0; z-index: 999; }
+    .topnav ul { display: flex; justify-content: center; align-items: center; margin: 0; padding: 0.75rem 0; list-style: none; background-color: #ffffff;}
+    .topnav ul li { margin: 0 1rem; }
+    .topnav a { text-decoration: none; color: #0a58ca; font-weight: 600; font-size: 1rem; padding: 0.5rem 1rem; border-radius: 5px; transition: background-color 0.3s, color 0.3s; }
+    .topnav a:hover,.topnav a.active { background-color: #0a58ca; color: #fff; }
+    /* ===== HEADER WITH LOGO LEFT ===== */
+    header { background: linear-gradient(135deg, #002663, #004080); color: #f0f2f5; padding: 2.5rem 1rem; border-bottom: 5px solid #fdb913; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
+    .header-layout { display: flex; align-items: center; justify-content: flex-start; max-width: 1200px; margin: 0 auto; gap: 2rem; flex-wrap: wrap; }
+    .logo-container { display: flex; align-items: flex-start; background-color: transparent; border-right: 2px solid rgba(255, 255, 255, 0.2); padding: 0; margin: 0; }
+    .dcu-logo-left { height: 100%; max-height: 160px; width: auto; object-fit: contain; margin: 0; padding: 0; align-self: stretch; }
+    .header-content {text-align: center; flex: 1;}
+    .header-content h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.75rem; color: #ffffff; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); }
+    .header-content .tagline,.header-content .author { font-size: 1.1rem; color: #d8dce3; margin: 0.3rem 0; }
+    /* ====== SENSOR SECTION ====== */
+    label { font-size: 1.1rem; font-weight: 600; }
+    select { font-size: 1rem; padding: 0.5rem; margin-left: 0.5rem; border-radius: 6px; border: 1px solid #ccc; }
+    /* ====== TABS ====== */
+    .tabs { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
+    .tablink { background-color: #eee; border: none; padding: 10px 20px; font-size: 1rem; cursor: pointer; font-weight: bold; border-radius: 5px; transition: 0.3s; }
+    .tablink:hover { background-color: #cce0ff; }
+    .tablink.active { background-color: #0a58ca; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    /* ====== TAB GRID ====== */
+    .tab-group { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; margin-top: 1rem; }
+    .tabcontent { display: none; }
+    .tab-box { flex: 1 1 30%; min-width: 300px; background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); box-sizing: border-box; overflow: hidden; transition: transform 0.3s ease; }
+    .tab-box:hover { transform: translateY(-4px); box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
+    .tab-box p { font-size: 1.2rem; font-weight: bold; margin-bottom: 0.75rem; }
+    /* Let the GPS card expand and show a big map */
+    #gps.tab-box { max-height: none; }
+    /* ====== IFRAME ====== */
+    iframe { width: 100%; height: 325px; border: none; border-radius: 8px; overflow: hidden; }
+    /* ====== FOOTER ====== */
+    footer { text-align: center; padding: 1rem; background: #f0f0f0; font-size: 0.9rem; color: #666; margin-top: 2rem; }
 
-/* ===== NAV ===== */
-.topnav {
-  background-color: #ffffff;
-  border-bottom: 1px solid #ddd;
-  position: sticky;
-  top: 0;
-  z-index: 999;
+/* ====== RESPONSIVE ====== */
+@media (max-width: 768px) {
+  .tab-box { flex: 1 1 100%; }
+  .topnav ul { flex-direction: column; gap: 0.5rem; }
+  .tablink { font-size: 0.95rem; padding: 8px 14px; }
+  header h1 { font-size: 1.5rem; }
+  iframe { height: 300px; }
+  #map { height: 360px; }
 }
-.topnav ul {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin: 0;
-  padding: 0.75rem 0;
-  list-style: none; /* Fixes bullet points */
-  background-color: #ffffff;
-}
-.topnav ul li { margin: 0 1rem; }
-.topnav a {
-  text-decoration: none;
-  color: #0a58ca;
-  font-weight: 600;
-  font-size: 1rem;
-  padding: 0.5rem 1rem;
-  border-radius: 5px;
-  transition: background-color 0.3s, color 0.3s;
-}
-.topnav a:hover,
-.topnav a.active {
-  background-color: #0a58ca;
-  color: #fff;
-}
-
-/* ===== HEADER WITH LOGO LEFT ===== */
-header {
-  background: linear-gradient(135deg, #002663, #004080);
-  color: #f0f2f5;
-  padding: 2.5rem 1rem;
-  border-bottom: 5px solid #fdb913;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-.header-layout {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  max-width: 1200px;
-  margin: 0 auto;
-  gap: 2rem;
-  flex-wrap: wrap;
-}
-.logo-container {
-  display: flex;
-  align-items: flex-start; /* was 'left' (invalid) */
-  background-color: transparent;
-  border-right: 2px solid rgba(255, 255, 255, 0.2);
-  padding: 0;
-  margin: 0;
-}
-.dcu-logo-left {
-  height: 100%;
-  max-height: 160px;
-  width: auto;
-  object-fit: contain;
-  margin: 0;
-  padding: 0;
-  align-self: stretch;
-}
-.header-content {
-  text-align: center;
-  flex: 1;
-}
-.header-content h1 {
-  font-size: 2.2rem;
-  font-weight: 700;
-  margin-bottom: 0.75rem;
-  color: #ffffff;
-  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-}
-.header-content .tagline,
-.header-content .author {
-  font-size: 1.1rem;
-  color: #d8dce3;
-  margin: 0.3rem 0;
-}
+@media (max-width: 600px) {
+  .header-layout { flex-direction: column; align-items: center; }
+  .dcu-logo-left { margin-bottom: 1rem; }
+  iframe { height: 280px; }
+  #map { height: 320px; }
+}  
   </style>
 </head>
 <body>
