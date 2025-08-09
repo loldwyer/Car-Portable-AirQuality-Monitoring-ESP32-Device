@@ -9,16 +9,14 @@ const PUSH_PERIOD   = 80_000; // 80 seconds
 let mapLeaflet = null;
 let marker = null;
 let gpsWatchId = null;
-let pushTimerId = null;
 let lastCoords = null;
+let lastPushMs = 0;
+let safetyTimer = null; // fires every PUSH_PERIOD using last known coords
 
 // --- UI helpers ---
-const $ = sel => document.querySelector(sel);
-const statusEl = () => $('#gpsStatus');
-
-function setStatus(msg) {
-  if (statusEl()) statusEl().textContent = msg;
-}
+const $ = s => document.querySelector(s);
+const log = (...a) => { console.log(...a); };
+function setStatus(msg) { const el = $('#gpsStatus'); if (el) el.textContent = msg; }
 
 // --- Map ---
 function ensureMapInit() {
@@ -50,15 +48,32 @@ async function sendToThingSpeakGPS(lat, lon) {
     field8: String(lon)
   });
 
-  // Debug log without the key
-  const debug = { field7: lat, field8: lon };
-  console.log("ThingSpeak GPS payload:", debug);
-
   const url = `https://api.thingspeak.com/update?${params.toString()}`;
+  log("ThingSpeak GPS payload:", { field7: lat, field8: lon, url: url.replace(TS_WRITE_KEY, '***') });
+
   const res = await fetch(url, { method: "GET" });
   const text = (await res.text()).trim();
   if (text === "0") throw new Error("ThingSpeak rejected update (rate limit or bad key/fields).");
   return text; // entry id
+}
+
+// push now if enough time passed
+async function maybePushNow(reason = "movement") {
+  if (!lastCoords) { setStatus("Waiting for GPS fix…"); return; }
+  const now = Date.now();
+  if (now - lastPushMs < PUSH_PERIOD && reason !== "manual") {
+    log(`Skip push (${reason}); ${Math.round((PUSH_PERIOD - (now - lastPushMs))/1000)}s left`);
+    return;
+  }
+  try {
+    const { latitude, longitude } = lastCoords;
+    const entry = await sendToThingSpeakGPS(latitude, longitude);
+    lastPushMs = now;
+    setStatus(`Pushed #${entry} at ${new Date().toLocaleTimeString()}`);
+  } catch (e) {
+    setStatus(`Push failed: ${e.message}`);
+    console.error(e);
+  }
 }
 
 // --- Geolocation handlers ---
@@ -70,6 +85,14 @@ async function handlePosition(pos) {
   $('#latDisp').textContent = latitude.toFixed(6);
   $('#lonDisp').textContent = longitude.toFixed(6);
   updateMap(latitude, longitude, accuracy);
+
+  // 1) Push immediately on first fix
+  if (lastPushMs === 0) {
+    maybePushNow("first-fix");
+    return;
+  }
+  // 2) Otherwise push if >= 80s elapsed
+  maybePushNow("movement");
 }
 
 function startGpsTest() {
@@ -87,25 +110,14 @@ function startGpsTest() {
   setStatus("Starting… allow location access.");
   gpsWatchId = navigator.geolocation.watchPosition(
     handlePosition,
-    err => setStatus(`GPS error: ${err.message || err.code}`),
+    err => { setStatus(`GPS error: ${err.message || err.code}`); },
     { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
   );
 
-  // Start a fixed-interval push every 80s using the latest coords we have
-  if (pushTimerId == null) {
-    pushTimerId = setInterval(async () => {
-      try {
-        if (!lastCoords) {
-          setStatus("Waiting for first GPS fix…");
-          return;
-        }
-        const { latitude, longitude } = lastCoords;
-        const entry = await sendToThingSpeakGPS(latitude, longitude);
-        setStatus(`Pushed entry #${entry} at ${new Date().toLocaleTimeString()}`);
-      } catch (e) {
-        setStatus(`Push failed: ${e.message}`);
-      }
-    }, PUSH_PERIOD);
+  // Safety timer: in case the browser throttles movement callbacks,
+  // push the last known coords every 80s anyway.
+  if (!safetyTimer) {
+    safetyTimer = setInterval(() => maybePushNow("timer"), PUSH_PERIOD);
   }
 }
 
@@ -114,16 +126,30 @@ function stopGpsTest() {
     navigator.geolocation.clearWatch(gpsWatchId);
     gpsWatchId = null;
   }
-  if (pushTimerId != null) {
-    clearInterval(pushTimerId);
-    pushTimerId = null;
+  if (safetyTimer) {
+    clearInterval(safetyTimer);
+    safetyTimer = null;
   }
   setStatus("Stopped.");
 }
+
+function pushNowManual() {
+  if (!lastCoords) { setStatus("No GPS fix yet."); return; }
+  maybePushNow("manual");
+}
+
+// Handle page visibility (helps on mobile)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    // try a push if we’re overdue
+    maybePushNow("visibility");
+  }
+});
 
 // --- Wire UI ---
 document.addEventListener("DOMContentLoaded", () => {
   $('#startGpsBtn')?.addEventListener('click', startGpsTest);
   $('#stopGpsBtn')?.addEventListener('click', stopGpsTest);
-  ensureMapInit(); // prepare map immediately
+  $('#pushNowBtn')?.addEventListener('click', pushNowManual);
+  ensureMapInit();
 });
