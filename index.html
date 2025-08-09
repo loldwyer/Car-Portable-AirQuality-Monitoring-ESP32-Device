@@ -20,6 +20,96 @@
     .card { max-width: 1200px; margin: 1rem auto; background:#fff; padding:1rem; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,.08); }
     .kv { font-size:.95rem; color:#444; }
     .kv span { display:inline-block; min-width:7ch; font-weight:600; }
+    section {
+  padding: 2rem 1rem;
+  max-width: 1200px;
+  margin: auto;
+}
+
+/* ===== NAV ===== */
+.topnav {
+  background-color: #ffffff;
+  border-bottom: 1px solid #ddd;
+  position: sticky;
+  top: 0;
+  z-index: 999;
+}
+.topnav ul {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0;
+  padding: 0.75rem 0;
+  list-style: none; /* Fixes bullet points */
+  background-color: #ffffff;
+}
+.topnav ul li { margin: 0 1rem; }
+.topnav a {
+  text-decoration: none;
+  color: #0a58ca;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.5rem 1rem;
+  border-radius: 5px;
+  transition: background-color 0.3s, color 0.3s;
+}
+.topnav a:hover,
+.topnav a.active {
+  background-color: #0a58ca;
+  color: #fff;
+}
+
+/* ===== HEADER WITH LOGO LEFT ===== */
+header {
+  background: linear-gradient(135deg, #002663, #004080);
+  color: #f0f2f5;
+  padding: 2.5rem 1rem;
+  border-bottom: 5px solid #fdb913;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.header-layout {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  max-width: 1200px;
+  margin: 0 auto;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+.logo-container {
+  display: flex;
+  align-items: flex-start; /* was 'left' (invalid) */
+  background-color: transparent;
+  border-right: 2px solid rgba(255, 255, 255, 0.2);
+  padding: 0;
+  margin: 0;
+}
+.dcu-logo-left {
+  height: 100%;
+  max-height: 160px;
+  width: auto;
+  object-fit: contain;
+  margin: 0;
+  padding: 0;
+  align-self: stretch;
+}
+.header-content {
+  text-align: center;
+  flex: 1;
+}
+.header-content h1 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  color: #ffffff;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+.header-content .tagline,
+.header-content .author {
+  font-size: 1.1rem;
+  color: #d8dce3;
+  margin: 0.3rem 0;
+}
   </style>
 </head>
 <body>
