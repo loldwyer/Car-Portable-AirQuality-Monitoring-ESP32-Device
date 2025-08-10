@@ -20,6 +20,61 @@ let safetyTimer = null;
 let lastCoords = null;
 let lastPushMs = 0;
 let follow = true;
+// --- Demo mode (simulate movement without leaving your chair) ---
+let DEMO_MODE = false;
+let demoTimer = null;
+
+// optional: keep demo path separate from real runs
+const DEMO_CLEAR_PATH_ON_START = true;
+
+function startDemo() {
+  if (demoTimer) return;
+  DEMO_MODE = true;
+  ensureMapInit();
+
+  // turn on Follow so you can test it
+  follow = true;
+  $('#toggleFollowBtn')?.textContent = 'Follow: on';
+
+  if (DEMO_CLEAR_PATH_ON_START) {
+    // reuse your clearPath() if you included it; otherwise inline clear:
+    if (typeof clearPath === 'function') clearPath();
+    else {
+      path = [];
+      localStorage.removeItem('gps_path');
+      if (polyline) polyline.setLatLngs([]);
+      if (marker) { marker.remove(); marker = null; }
+      if (accuracyCircle) { accuracyCircle.remove(); accuracyCircle = null; }
+    }
+  }
+
+  setStatus('Demo mode: simulating movement…');
+
+  // A smooth loop around central Dublin (~300m radius)
+  const center = [53.3498, -6.2603];
+  const R = 0.003;            // ≈ 300 m in latitude
+  let t = 0;
+
+  demoTimer = setInterval(() => {
+    t += 0.05;                 // speed; lower is slower
+    const lat = center[0] + R * Math.cos(t);
+    // correct longitude scaling by latitude
+    const lon = center[1] + (R * Math.sin(t)) / Math.cos(center[0] * Math.PI / 180);
+
+    // Feed your existing handler a fake geolocation Position
+    handlePosition({ coords: { latitude: lat, longitude: lon, accuracy: 5 } });
+  }, 1000);
+
+  // Make the button read "Stop Demo"
+  const btn = $('#demoBtn'); if (btn) btn.textContent = 'Stop Demo';
+}
+
+function stopDemo() {
+  if (demoTimer) { clearInterval(demoTimer); demoTimer = null; }
+  DEMO_MODE = false;
+  setStatus('Demo stopped.');
+  const btn = $('#demoBtn'); if (btn) btn.textContent = 'Demo Follow';
+}
 
 const MIN_MOVE_METERS = 2; // ignore tiny GPS jitter
 
