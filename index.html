@@ -23,87 +23,98 @@
 
 <div id="map"></div>
 
-
 <script>
-const ESP_BASE = 'http://10.229.188.187';
-const THINGSPEAK_WRITE_KEY = '9YXHS30JF6Z9YHXI';
-const THINGSPEAK_URL = 'https://api.thingspeak.com/update.json';
+const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // ThingSpeak Write API Key
+const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update";
+const ESP32_IP = "10.229.188.187"; // ESP32 local IP address
 
-let lastGood = {pm1:null, pm25:null, pm10:null, co2:null, temp:null, hum:null};
+let map = L.map('map').setView([0, 0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+let marker;
 
-async function getSensors() {
+let gpsWatchId = null;
+let sendTimer = null;
+let lastLat = null;
+let lastLon = null;
+
+async function fetchEsp32Data() {
   try {
-    const r = await fetch(`${ESP_BASE}/sensors`, { method: 'GET' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const j = await r.json();
-    // sanity: only accept finite numbers
-    const toNum = v => (Number.isFinite(+v) ? +v : null);
-    const s = {
-      pm1:  toNum(j.pm1),
-      pm25: toNum(j.pm25),
-      pm10: toNum(j.pm10),
-      co2:  toNum(j.co2),
-      temp: toNum(j.temperature),
-      hum:  toNum(j.humidity)
-    };
-    // keep last good values
-    Object.keys(s).forEach(k => { if (s[k] !== null) lastGood[k] = s[k]; });
-    document.getElementById('espStatus')?.replaceChildren(document.createTextNode('sensors OK'));
-    return true;
-  } catch (e) {
-    document.getElementById('espStatus')?.replaceChildren(document.createTextNode(`sensors ERR: ${e.message}`));
-    return false;
+    let res = await fetch(`http://${ESP32_IP}/sensors`);
+    return await res.json();
+  } catch (err) {
+    console.error("ESP32 fetch error", err);
+    return {};
   }
 }
 
 async function sendToThingSpeak() {
-  // Get latest from ESP first
-  const ok = await getSensors();
-
-  // Build payload using last good values; if we have none yet, skip entirely
-  if (!ok && Object.values(lastGood).every(v => v === null)) {
-    console.log('Skip TS: no sensor data yet');
+  if (lastLat === null || lastLon === null) {
+    document.getElementById("status").textContent = "No GPS yet...";
     return;
   }
 
-  const params = new URLSearchParams({
-    api_key: THINGSPEAK_WRITE_KEY,
-    field1: lastGood.pm1  ?? 0,
-    field2: lastGood.pm25 ?? 0,
-    field3: lastGood.pm10 ?? 0,
-    field4: lastGood.co2  ?? 0,
-    field5: lastGood.temp ?? 0,
-    field6: lastGood.hum  ?? 0
-  });
+  let sensors = await fetchEsp32Data();
+
+  let url = `${THINGSPEAK_UPDATE_URL}?api_key=${THINGSPEAK_API_KEY}` +
+    `&field1=${sensors.pm1 || 0}` +
+    `&field2=${sensors.pm25 || 0}` +
+    `&field3=${sensors.pm10 || 0}` +
+    `&field4=${sensors.co2 || 0}` +
+    `&field5=${sensors.temperature || 0}` +
+    `&field6=${sensors.humidity || 0}` +
+    `&field7=${lastLat}` +
+    `&field8=${lastLon}`;
 
   try {
-    const r = await fetch(THINGSPEAK_URL, {
-      method: 'POST',
-      headers: {'Content-Type':'application/x-www-form-urlencoded'},
-      body: params.toString()
-    });
-    const resp = await r.json().catch(()=> ({}));
-    if (r.ok && resp && resp.channel_id) {
-      console.log('ThingSpeak OK:', resp);
-      document.getElementById('gpsStatus')?.replaceChildren(document.createTextNode('ThingSpeak OK'));
+    let res = await fetch(url);
+    let text = await res.text();
+    if (text.trim() === "0") {
+      document.getElementById("status").textContent = "ThingSpeak rejected update";
     } else {
-      throw new Error(`TS HTTP ${r.status}`);
+      document.getElementById("status").textContent = `Uploaded row #${text.trim()} (${lastLat.toFixed(6)}, ${lastLon.toFixed(6)})`;
     }
-  } catch (e) {
-    console.warn('ThingSpeak error:', e);
-    document.getElementById('gpsStatus')?.replaceChildren(document.createTextNode(`TS ERR: ${e.message}`));
+  } catch (err) {
+    console.error(err);
+    document.getElementById("status").textContent = "Upload error";
   }
 }
 
-// 80s interval, synchronized
-let sendTimer;
-function start() {
-  if (sendTimer) clearInterval(sendTimer);
-  // do one immediately, then every 80s
-  sendToThingSpeak();
-  sendTimer = setInterval(sendToThingSpeak, 80000);
-}
-window.addEventListener('load', start);
+document.getElementById("startBtn").addEventListener("click", () => {
+  if (!navigator.geolocation) {
+    alert("Geolocation not supported");
+    return;
+  }
+
+  document.getElementById("status").textContent = "Starting GPS...";
+
+  gpsWatchId = navigator.geolocation.watchPosition(pos => {
+    lastLat = pos.coords.latitude;
+    lastLon = pos.coords.longitude;
+
+    if (marker) marker.setLatLng([lastLat, lastLon]);
+    else marker = L.marker([lastLat, lastLon]).addTo(map);
+    map.setView([lastLat, lastLon], 16);
+  }, err => {
+    console.error(err);
+    document.getElementById("status").textContent = "GPS error";
+  }, { enableHighAccuracy: true });
+
+  sendTimer = setInterval(sendToThingSpeak, 60000); // every 15 sec
+});
+
+document.getElementById("stopBtn").addEventListener("click", () => {
+  if (gpsWatchId) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+  }
+  if (sendTimer) {
+    clearInterval(sendTimer);
+    sendTimer = null;
+  }
+  document.getElementById("status").textContent = "Stopped";
+});
 </script>
 
 </body>
