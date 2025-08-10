@@ -188,6 +188,7 @@ async function sendToThingSpeakGPS(lat, lon) {
 }
 
 async function pushGps(reason = "timer") {
+  if (DEMO_MODE) { setStatus("Demo mode: not pushing to ThingSpeak."); return; }
   if (!lastCoords) { setStatus("Waiting for GPS fix…"); return; }
   const now = Date.now();
   if (reason !== "manual" && now - lastPushMs < PUSH_PERIOD) {
@@ -204,6 +205,7 @@ async function pushGps(reason = "timer") {
     setStatus(`Push failed: ${e.message}`);
     console.error(e);
   }
+}
 }
 
 // --- Geolocation ---
@@ -320,6 +322,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $('#pushNowBtn')?.addEventListener('click', pushNowManual);
 
   // new
+  $('#demoBtn')?.addEventListener('click', () => {
+  if (demoTimer) stopDemo(); else startDemo();
+});
   $('#toggleFollowBtn')?.addEventListener('click', toggleFollow);
   $('#clearPathBtn')?.addEventListener('click', clearPath);
 
