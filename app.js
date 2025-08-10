@@ -198,6 +198,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") pushGps("visibility");
 });
 
+console.log("app.js loaded");
 // --- Wire UI ---
 document.addEventListener("DOMContentLoaded", () => {
   $('#startGpsBtn')?.addEventListener('click', startTest);
