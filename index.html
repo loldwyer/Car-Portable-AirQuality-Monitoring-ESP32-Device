@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GPS → ThingSpeak</title>
+  <title>ESP32 + GPS → ThingSpeak</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -16,7 +16,7 @@
 </head>
 <body>
 
-<h1>GPS → ThingSpeak</h1>
+<h1>ESP32 + GPS → ThingSpeak</h1>
 <p>Status: <span id="status">Idle</span></p>
 <button class="btn primary" id="startBtn">Start Upload</button>
 <button class="btn ghost" id="stopBtn">Stop Upload</button>
@@ -24,8 +24,9 @@
 <div id="map"></div>
 
 <script>
-const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // <-- Replace with your Write API Key
+const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // ThingSpeak Write API Key
 const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update";
+const ESP32_IP = "10.229.188.187"; // ESP32 local IP address
 
 let map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -35,20 +36,48 @@ let marker;
 
 let gpsWatchId = null;
 let sendTimer = null;
+let lastLat = null;
+let lastLon = null;
 
-async function sendToThingSpeak(lat, lon) {
+async function fetchEsp32Data() {
   try {
-    let url = `${THINGSPEAK_UPDATE_URL}?api_key=${THINGSPEAK_API_KEY}&field7=${lat}&field8=${lon}`;
+    let res = await fetch(`http://${ESP32_IP}/sensors`);
+    return await res.json();
+  } catch (err) {
+    console.error("ESP32 fetch error", err);
+    return {};
+  }
+}
+
+async function sendToThingSpeak() {
+  if (lastLat === null || lastLon === null) {
+    document.getElementById("status").textContent = "No GPS yet...";
+    return;
+  }
+
+  let sensors = await fetchEsp32Data();
+
+  let url = `${THINGSPEAK_UPDATE_URL}?api_key=${THINGSPEAK_API_KEY}` +
+    `&field1=${sensors.pm1 || 0}` +
+    `&field2=${sensors.pm25 || 0}` +
+    `&field3=${sensors.pm10 || 0}` +
+    `&field4=${sensors.co2 || 0}` +
+    `&field5=${sensors.temperature || 0}` +
+    `&field6=${sensors.humidity || 0}` +
+    `&field7=${lastLat}` +
+    `&field8=${lastLon}`;
+
+  try {
     let res = await fetch(url);
     let text = await res.text();
     if (text.trim() === "0") {
       document.getElementById("status").textContent = "ThingSpeak rejected update";
     } else {
-      document.getElementById("status").textContent = `Uploaded: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+      document.getElementById("status").textContent = `Uploaded row #${text.trim()} (${lastLat.toFixed(6)}, ${lastLon.toFixed(6)})`;
     }
   } catch (err) {
     console.error(err);
-    document.getElementById("status").textContent = "Error uploading to ThingSpeak";
+    document.getElementById("status").textContent = "Upload error";
   }
 }
 
@@ -59,28 +88,20 @@ document.getElementById("startBtn").addEventListener("click", () => {
   }
 
   document.getElementById("status").textContent = "Starting GPS...";
-  
+
   gpsWatchId = navigator.geolocation.watchPosition(pos => {
-    const lat = pos.coords.latitude;
-    const lon = pos.coords.longitude;
+    lastLat = pos.coords.latitude;
+    lastLon = pos.coords.longitude;
 
-    if (marker) marker.setLatLng([lat, lon]);
-    else marker = L.marker([lat, lon]).addTo(map);
-    map.setView([lat, lon], 16);
-
-    // Send immediately
-    sendToThingSpeak(lat, lon);
-
-    // Send every 15 seconds
-    if (!sendTimer) {
-      sendTimer = setInterval(() => {
-        sendToThingSpeak(lat, lon);
-      }, 15000);
-    }
+    if (marker) marker.setLatLng([lastLat, lastLon]);
+    else marker = L.marker([lastLat, lastLon]).addTo(map);
+    map.setView([lastLat, lastLon], 16);
   }, err => {
     console.error(err);
     document.getElementById("status").textContent = "GPS error";
   }, { enableHighAccuracy: true });
+
+  sendTimer = setInterval(sendToThingSpeak, 15000); // every 15 sec
 });
 
 document.getElementById("stopBtn").addEventListener("click", () => {
