@@ -1,123 +1,220 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>ESP32 + GPS → ThingSpeak</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Browser → ThingSpeak (GPS + ESP32 sensors)</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
   <style>
-    body { font-family: sans-serif; padding: 1rem; }
-    #map { height: 400px; border-radius: 8px; margin-top: 10px; }
-    .btn { padding: 0.6rem 1rem; margin: 0.3rem; border: none; border-radius: 6px; cursor: pointer; }
-    .primary { background: #2563eb; color: white; }
-    .ghost { background: #ccc; }
+    :root { --blue:#2563eb; --bg:#f6f7fb; --text:#111827; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
+    header { background:linear-gradient(135deg,#002663,#004080); color:#fff; padding:1.25rem 1rem; }
+    header h1 { margin:0; font-size:1.25rem; }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+    .card { background:#fff; border-radius:12px; box-shadow:0 8px 20px rgba(0,0,0,.08); padding:1rem; margin:1rem 0; }
+    #map { width:100%; height:420px; border-radius:10px; background:#e9eef5; }
+    .row { display:flex; flex-wrap:wrap; gap:1rem; }
+    .col { flex:1 1 280px; }
+    .kv { font-size:.95rem; line-height:1.6; }
+    .kv b { display:inline-block; min-width:9ch; }
+    .btn { padding:.6rem 1rem; border:0; border-radius:8px; cursor:pointer; font-weight:600; background:var(--blue); color:#fff; }
+    .muted { color:#6b7280; }
+    .ok { color:#16a34a; }
+    .warn { color:#f59e0b; }
+    .err { color:#ef4444; }
+    footer { text-align:center; color:#6b7280; padding:1rem 0 2rem; }
+    @media (max-width: 640px) { #map{height:360px;} }
   </style>
 </head>
 <body>
 
-<h1>ESP32 + GPS → ThingSpeak</h1>
-<p>Status: <span id="status">Idle</span></p>
-<button class="btn primary" id="startBtn">Start Upload</button>
-<button class="btn ghost" id="stopBtn">Stop Upload</button>
+<header>
+  <div class="wrap">
+    <h1>Browser → ThingSpeak (GPS + ESP32 sensors)</h1>
+  </div>
+</header>
 
-<div id="map"></div>
- 
+<div class="wrap">
+
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <h2 style="margin:0 0 .5rem 0;">Live GPS</h2>
+        <div id="map" aria-label="Live phone GPS map"></div>
+      </div>
+      <div class="col">
+        <h2 style="margin:0 0 .5rem 0;">Status</h2>
+        <p class="kv"><b>ESP32:</b> <span id="espIp" class="muted">http://10.229.188.187</span></p>
+        <p class="kv"><b>GPS:</b> <span id="lat">—</span>, <span id="lon">—</span></p>
+        <p class="kv"><b>Sensors:</b> PM1=<span id="pm1">—</span>, PM2.5=<span id="pm25">—</span>, PM10=<span id="pm10">—</span><br>
+          CO₂=<span id="co2">—</span> ppm, Temp=<span id="temp">—</span> °C, RH=<span id="hum">—</span> %</p>
+        <p class="kv"><b>Next upload:</b> <span id="countdown">—</span></p>
+        <p class="kv"><b>Last upload:</b> <span id="lastUpload" class="muted">never</span></p>
+        <p id="log" class="muted" style="min-height:1.5em;"></p>
+        <button id="pushNow" class="btn">Push Now</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>OpenStreetMap © contributors • ThingSpeak combined writer</footer>
 
 <script>
-const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // ThingSpeak Write API Key
-const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update";
-const ESP32_IP = "10.229.188.187"; // ESP32 local IP address
+/* ========= CONFIG ========= */
+const ESP_BASE = 'http://10.229.188.187';                // your ESP32 IP
+const THINGSPEAK_WRITE_KEY = '9YXHS30JF6Z9YHXI';          // your channel write key
+const THINGSPEAK_URL = 'https://api.thingspeak.com/update.json';
+const UPLOAD_PERIOD_MS = 80000;                           // 80 s
 
-let map = L.map('map').setView([0, 0], 2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
-let marker;
+/* ========= STATE ========= */
+let map, marker;
+let lastGps = null; // {lat, lon, ts}
+let countdown = UPLOAD_PERIOD_MS/1000;
+let countdownTimer, uploaderTimer;
 
-let gpsWatchId = null;
-let sendTimer = null;
-let lastLat = null;
-let lastLon = null;
+/* ========= UI HELPERS ========= */
+const $ = sel => document.querySelector(sel);
+function setText(id, v){ const el=$(id); if(el) el.textContent = v; }
+function logMsg(msg, cls='muted'){ const el=$("#log"); if(el){ el.className=cls; el.textContent=msg; }}
 
-async function fetchEsp32Data() {
-  try {
-    let res = await fetch(`http://${ESP32_IP}/sensors`);
-    return await res.json();
-  } catch (err) {
-    console.error("ESP32 fetch error", err);
-    return {};
-  }
+/* ========= MAP ========= */
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([53.35, -6.26], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+  marker = L.marker([53.35, -6.26]).addTo(map).bindPopup('Waiting for GPS…');
 }
 
-async function sendToThingSpeak() {
-  if (lastLat === null || lastLon === null) {
-    document.getElementById("status").textContent = "No GPS yet...";
+/* ========= GEOLOCATION ========= */
+function startGPSWatch() {
+  if (!('geolocation' in navigator)) {
+    logMsg('Geolocation not available on this device', 'err');
     return;
   }
+  navigator.geolocation.watchPosition(
+    pos => {
+      const lat = +pos.coords.latitude;
+      const lon = +pos.coords.longitude;
+      lastGps = { lat, lon, ts: Date.now() };
+      setText('#lat', lat.toFixed(6));
+      setText('#lon', lon.toFixed(6));
+      marker.setLatLng([lat, lon]).setPopupContent(`You are here<br>${lat.toFixed(6)}, ${lon.toFixed(6)}`);
+      map.setView([lat, lon], Math.max(map.getZoom(), 15));
+    },
+    err => {
+      logMsg(`GPS error: ${err.message}`, 'err');
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+  );
+}
 
-  let sensors = await fetchEsp32Data();
+/* ========= ESP32 SENSORS ========= */
+async function getSensors() {
+  const r = await fetch(`${ESP_BASE}/sensors`, { cache:'no-store' });
+  if (!r.ok) throw new Error(`ESP /sensors HTTP ${r.status}`);
+  const j = await r.json();
 
-  let url = `${THINGSPEAK_UPDATE_URL}?api_key=${THINGSPEAK_API_KEY}` +
-    `&field1=${sensors.pm1 || 0}` +
-    `&field2=${sensors.pm25 || 0}` +
-    `&field3=${sensors.pm10 || 0}` +
-    `&field4=${sensors.co2 || 0}` +
-    `&field5=${sensors.temperature || 0}` +
-    `&field6=${sensors.humidity || 0}` +
-    `&field7=${lastLat}` +
-    `&field8=${lastLon}`;
+  const s = {
+    pm1:  Number.isFinite(+j.pm1) ? +j.pm1 : null,
+    pm25: Number.isFinite(+j.pm25) ? +j.pm25 : null,
+    pm10: Number.isFinite(+j.pm10) ? +j.pm10 : null,
+    co2:  Number.isFinite(+j.co2) ? +j.co2 : null,
+    temp: Number.isFinite(+j.temperature) ? +j.temperature : null,
+    hum:  Number.isFinite(+j.humidity) ? +j.humidity : null,
+  };
 
+  // update UI
+  setText('#pm1',  s.pm1  ?? '—');
+  setText('#pm25', s.pm25 ?? '—');
+  setText('#pm10', s.pm10 ?? '—');
+  setText('#co2',  s.co2  ?? '—');
+  setText('#temp', s.temp ?? '—');
+  setText('#hum',  s.hum  ?? '—');
+
+  return s;
+}
+
+/* ========= THINGSPEAK UPLOAD ========= */
+/* Only upload when we have BOTH: fresh GPS (seen in last 2.5 minutes) and all sensors. */
+function readyToUpload(s) {
+  const haveSensors = [s.pm1,s.pm25,s.pm10,s.co2,s.temp,s.hum].every(v => typeof v === 'number');
+  const haveFreshGps = lastGps && (Date.now() - lastGps.ts) < 150000; // 150 s freshness
+  return haveSensors && haveFreshGps;
+}
+
+async function sendCombined() {
   try {
-    let res = await fetch(url);
-    let text = await res.text();
-    if (text.trim() === "0") {
-      document.getElementById("status").textContent = "ThingSpeak rejected update";
-    } else {
-      document.getElementById("status").textContent = `Uploaded row #${text.trim()} (${lastLat.toFixed(6)}, ${lastLon.toFixed(6)})`;
+    logMsg('Reading sensors…');
+    const s = await getSensors();
+
+    if (!readyToUpload(s)) {
+      logMsg('Skip: waiting for GPS and/or sensors to be ready', 'warn');
+      return;
     }
-  } catch (err) {
-    console.error(err);
-    document.getElementById("status").textContent = "Upload error";
+
+    const params = new URLSearchParams({
+      api_key: THINGSPEAK_WRITE_KEY,
+      field1: s.pm1,   // PM1.0
+      field2: s.pm25,  // PM2.5
+      field3: s.pm10,  // PM10
+      field4: s.co2,   // CO2
+      field5: s.temp,  // Temp
+      field6: s.hum,   // RH
+      field7: lastGps.lat,
+      field8: lastGps.lon,
+      status: 'browser-combined'
+    });
+
+    logMsg('Uploading to ThingSpeak…');
+    const r = await fetch(THINGSPEAK_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: params.toString()
+    });
+    if (!r.ok) throw new Error(`ThingSpeak HTTP ${r.status}`);
+    const j = await r.json(); // returns entry id or 0
+    if (+j === 0) throw new Error('ThingSpeak rejected update (rate limit?)');
+
+    const when = new Date().toLocaleTimeString();
+    setText('#lastUpload', `${when} (entry ${j})`);
+    logMsg('ThingSpeak update successful ✔', 'ok');
+  } catch (e) {
+    logMsg(`Upload failed: ${e.message}`, 'err');
   }
 }
 
-document.getElementById("startBtn").addEventListener("click", () => {
-  if (!navigator.geolocation) {
-    alert("Geolocation not supported");
-    return;
-  }
+/* ========= TIMERS ========= */
+function startTimers() {
+  // countdown display
+  setText('#countdown', `${countdown}s`);
+  countdownTimer = setInterval(() => {
+    countdown -= 1;
+    if (countdown <= 0) countdown = UPLOAD_PERIOD_MS/1000;
+    setText('#countdown', `${countdown}s`);
+  }, 1000);
 
-  document.getElementById("status").textContent = "Starting GPS...";
+  // uploader
+  uploaderTimer = setInterval(sendCombined, UPLOAD_PERIOD_MS);
 
-  gpsWatchId = navigator.geolocation.watchPosition(pos => {
-    lastLat = pos.coords.latitude;
-    lastLon = pos.coords.longitude;
+  // fire an early attempt after 5s (gives GPS time to warm up)
+  setTimeout(sendCombined, 5000);
+}
 
-    if (marker) marker.setLatLng([lastLat, lastLon]);
-    else marker = L.marker([lastLat, lastLon]).addTo(map);
-    map.setView([lastLat, lastLon], 16);
-  }, err => {
-    console.error(err);
-    document.getElementById("status").textContent = "GPS error";
-  }, { enableHighAccuracy: true });
-
-  sendTimer = setInterval(sendToThingSpeak, 60000); // every 15 sec
-});
-
-document.getElementById("stopBtn").addEventListener("click", () => {
-  if (gpsWatchId) {
-    navigator.geolocation.clearWatch(gpsWatchId);
-    gpsWatchId = null;
-  }
-  if (sendTimer) {
-    clearInterval(sendTimer);
-    sendTimer = null;
-  }
-  document.getElementById("status").textContent = "Stopped";
+/* ========= BOOT ========= */
+window.addEventListener('DOMContentLoaded', () => {
+  $("#espIp").textContent = ESP_BASE;
+  initMap();
+  startGPSWatch();
+  startTimers();
+  $("#pushNow").addEventListener('click', sendCombined);
 });
 </script>
-  
 
 </body>
 </html>
