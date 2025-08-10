@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>ESP32 + GPS → ThingSpeak</title>
+  <title>ESP32 + GPS → ThingSpeak (Merge View)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,73 +12,62 @@
     .btn { padding: 0.6rem 1rem; margin: 0.3rem; border: none; border-radius: 6px; cursor: pointer; }
     .primary { background: #2563eb; color: white; }
     .ghost { background: #ccc; }
+    table { border-collapse: collapse; margin-top: 1rem; width: 100%; }
+    table, th, td { border: 1px solid #ddd; }
+    th, td { padding: 8px; font-size: 0.9rem; }
+    th { background: #f0f0f0; }
   </style>
 </head>
 <body>
 
-<h1>ESP32 + GPS → ThingSpeak</h1>
+<h1>ESP32 + GPS → ThingSpeak (Separate Upload, Merged View)</h1>
 <p>Status: <span id="status">Idle</span></p>
-<button class="btn primary" id="startBtn">Start Upload</button>
-<button class="btn ghost" id="stopBtn">Stop Upload</button>
+
+<button class="btn primary" id="startBtn">Start GPS Upload</button>
+<button class="btn ghost" id="stopBtn">Stop GPS</button>
+<button class="btn" id="mergeBtn">Fetch & Merge Data</button>
+<button class="btn" id="downloadBtn">Download CSV</button>
 
 <div id="map"></div>
- 
+<div id="tableContainer"></div>
 
 <script>
-const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // ThingSpeak Write API Key
-const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update";
-const ESP32_IP = "10.229.188.187"; // ESP32 local IP address
+/* ===== CONFIG ===== */
+// Channel IDs and keys for separate uploads
+const SENSOR_CHANNEL_ID = "YOUR_SENSOR_CHANNEL_ID"; // ESP32 sensor channel
+const GPS_CHANNEL_ID = "YOUR_GPS_CHANNEL_ID";       // GPS channel
+const SENSOR_READ_KEY = ""; // If public, leave blank
+const GPS_READ_KEY = "";
 
+// ThingSpeak write keys (for uploading GPS from phone)
+const GPS_WRITE_KEY = "YOUR_GPS_WRITE_KEY";
+const GPS_UPDATE_URL = "https://api.thingspeak.com/update";
+
+let gpsWatchId = null;
+let gpsTimer = null;
+let lastLat = null;
+let lastLon = null;
+let marker;
 let map = L.map('map').setView([0, 0], 2);
+
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
-let marker;
 
-let gpsWatchId = null;
-let sendTimer = null;
-let lastLat = null;
-let lastLon = null;
-
-async function fetchEsp32Data() {
-  try {
-    let res = await fetch(`http://${ESP32_IP}/sensors`);
-    return await res.json();
-  } catch (err) {
-    console.error("ESP32 fetch error", err);
-    return {};
-  }
-}
-
-async function sendToThingSpeak() {
+/* ===== GPS Upload ===== */
+async function sendGpsToThingSpeak() {
   if (lastLat === null || lastLon === null) {
     document.getElementById("status").textContent = "No GPS yet...";
     return;
   }
-
-  let sensors = await fetchEsp32Data();
-
-  let url = `${THINGSPEAK_UPDATE_URL}?api_key=${THINGSPEAK_API_KEY}` +
-    `&field1=${sensors.pm1 || 0}` +
-    `&field2=${sensors.pm25 || 0}` +
-    `&field3=${sensors.pm10 || 0}` +
-    `&field4=${sensors.co2 || 0}` +
-    `&field5=${sensors.temperature || 0}` +
-    `&field6=${sensors.humidity || 0}` +
-    `&field7=${lastLat}` +
-    `&field8=${lastLon}`;
-
+  let url = `${GPS_UPDATE_URL}?api_key=${GPS_WRITE_KEY}&field1=${lastLat}&field2=${lastLon}`;
   try {
     let res = await fetch(url);
     let text = await res.text();
-    if (text.trim() === "0") {
-      document.getElementById("status").textContent = "ThingSpeak rejected update";
-    } else {
-      document.getElementById("status").textContent = `Uploaded row #${text.trim()} (${lastLat.toFixed(6)}, ${lastLon.toFixed(6)})`;
-    }
+    document.getElementById("status").textContent = text.trim() === "0" ? "TS rejected GPS" : `GPS uploaded (${lastLat.toFixed(6)}, ${lastLon.toFixed(6)})`;
   } catch (err) {
     console.error(err);
-    document.getElementById("status").textContent = "Upload error";
+    document.getElementById("status").textContent = "GPS upload error";
   }
 }
 
@@ -87,13 +76,10 @@ document.getElementById("startBtn").addEventListener("click", () => {
     alert("Geolocation not supported");
     return;
   }
-
   document.getElementById("status").textContent = "Starting GPS...";
-
   gpsWatchId = navigator.geolocation.watchPosition(pos => {
     lastLat = pos.coords.latitude;
     lastLon = pos.coords.longitude;
-
     if (marker) marker.setLatLng([lastLat, lastLon]);
     else marker = L.marker([lastLat, lastLon]).addTo(map);
     map.setView([lastLat, lastLon], 16);
@@ -101,8 +87,7 @@ document.getElementById("startBtn").addEventListener("click", () => {
     console.error(err);
     document.getElementById("status").textContent = "GPS error";
   }, { enableHighAccuracy: true });
-
-  sendTimer = setInterval(sendToThingSpeak, 60000); // every 15 sec
+  gpsTimer = setInterval(sendGpsToThingSpeak, 60000); // every 60 sec
 });
 
 document.getElementById("stopBtn").addEventListener("click", () => {
@@ -110,14 +95,92 @@ document.getElementById("stopBtn").addEventListener("click", () => {
     navigator.geolocation.clearWatch(gpsWatchId);
     gpsWatchId = null;
   }
-  if (sendTimer) {
-    clearInterval(sendTimer);
-    sendTimer = null;
+  if (gpsTimer) {
+    clearInterval(gpsTimer);
+    gpsTimer = null;
   }
-  document.getElementById("status").textContent = "Stopped";
+  document.getElementById("status").textContent = "GPS stopped";
+});
+
+/* ===== Merge & CSV ===== */
+async function fetchChannelFeeds(channelId, readKey) {
+  let url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?results=1000`;
+  if (readKey) url += `&api_key=${readKey}`;
+  let res = await fetch(url);
+  let json = await res.json();
+  return json.feeds.map(f => ({
+    created_at: new Date(f.created_at),
+    fields: f
+  }));
+}
+
+function mergeFeeds(sensorData, gpsData) {
+  let merged = [];
+  const toleranceMs = 90000; // match within 90s
+  for (let s of sensorData) {
+    let match = gpsData.find(g => Math.abs(g.created_at - s.created_at) <= toleranceMs);
+    merged.push({
+      timestamp: s.created_at.toISOString(),
+      pm1: s.fields.field1 || "",
+      pm25: s.fields.field2 || "",
+      pm10: s.fields.field3 || "",
+      co2: s.fields.field4 || "",
+      temp: s.fields.field5 || "",
+      hum: s.fields.field6 || "",
+      lat: match ? match.fields.field1 : "",
+      lon: match ? match.fields.field2 : ""
+    });
+  }
+  return merged;
+}
+
+function renderTable(data) {
+  let html = "<table><tr><th>Timestamp</th><th>PM1</th><th>PM2.5</th><th>PM10</th><th>CO₂</th><th>Temp</th><th>Humidity</th><th>Lat</th><th>Lon</th></tr>";
+  data.forEach(row => {
+    html += `<tr>
+      <td>${row.timestamp}</td><td>${row.pm1}</td><td>${row.pm25}</td><td>${row.pm10}</td>
+      <td>${row.co2}</td><td>${row.temp}</td><td>${row.hum}</td>
+      <td>${row.lat}</td><td>${row.lon}</td>
+    </tr>`;
+  });
+  html += "</table>";
+  document.getElementById("tableContainer").innerHTML = html;
+}
+
+function downloadCSV(data) {
+  let csv = "Timestamp,PM1,PM2.5,PM10,CO2,Temp,Humidity,Lat,Lon\n";
+  data.forEach(r => {
+    csv += `${r.timestamp},${r.pm1},${r.pm25},${r.pm10},${r.co2},${r.temp},${r.hum},${r.lat},${r.lon}\n`;
+  });
+  let blob = new Blob([csv], { type: "text/csv" });
+  let url = URL.createObjectURL(blob);
+  let a = document.createElement("a");
+  a.href = url;
+  a.download = "merged_data.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+let mergedData = [];
+
+document.getElementById("mergeBtn").addEventListener("click", async () => {
+  document.getElementById("status").textContent = "Fetching & merging...";
+  let sensors = await fetchChannelFeeds(SENSOR_CHANNEL_ID, SENSOR_READ_KEY);
+  let gps = await fetchChannelFeeds(GPS_CHANNEL_ID, GPS_READ_KEY);
+  mergedData = mergeFeeds(sensors, gps);
+  renderTable(mergedData);
+  document.getElementById("status").textContent = "Merge complete";
+});
+
+document.getElementById("downloadBtn").addEventListener("click", () => {
+  if (mergedData.length === 0) {
+    alert("No merged data yet. Click 'Fetch & Merge Data' first.");
+    return;
+  }
+  downloadCSV(mergedData);
 });
 </script>
-  
 
 </body>
 </html>
