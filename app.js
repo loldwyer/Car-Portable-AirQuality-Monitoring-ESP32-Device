@@ -206,7 +206,7 @@ async function pushGps(reason = "timer") {
     console.error(e);
   }
 }
-}
+
 
 // --- Geolocation ---
 function maybeAppendPoint(lat, lon) {
