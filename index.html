@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>ESP32 + GPS → ThingSpeak</title>
+  <title>ESP + GPS → ThingSpeak</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -22,7 +22,80 @@
 <button class="btn ghost" id="stopBtn">Stop Upload</button>
 
 <div id="map"></div>
+  <script>
+  const ESP_BASE = 'http://10.229.188.187';            // your ESP32 IP
+const THINGSPEAK_WRITE_KEY = '9YXHS30JF6Z9YHXI';
+const THINGSPEAK_URL = 'https://api.thingspeak.com/update.json';
 
+function getGPS() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('No geolocation'));
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({
+        lat: +pos.coords.latitude,
+        lon: +pos.coords.longitude
+      }),
+      err => reject(err),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+  });
+}
+
+async function getSensors() {
+  const r = await fetch(`${ESP_BASE}/sensors`);
+  if (!r.ok) throw new Error(`ESP /sensors HTTP ${r.status}`);
+  const j = await r.json();
+  // coerce to numbers; may be undefined on first seconds after boot
+  return {
+    pm1:  Number.isFinite(+j.pm1) ? +j.pm1 : null,
+    pm25: Number.isFinite(+j.pm25) ? +j.pm25 : null,
+    pm10: Number.isFinite(+j.pm10) ? +j.pm10 : null,
+    co2:  Number.isFinite(+j.co2) ? +j.co2 : null,
+    temp: Number.isFinite(+j.temperature) ? +j.temperature : null,
+    hum:  Number.isFinite(+j.humidity) ? +j.humidity : null,
+  };
+}
+
+async function sendCombined() {
+  try {
+    const [gps, s] = await Promise.all([getGPS(), getSensors()]);
+    // if sensors not ready yet, skip this tick to avoid zeros
+    if ([s.pm1,s.pm25,s.pm10,s.co2,s.temp,s.hum].some(v => v === null)) {
+      console.log('Skip: sensors not ready yet');
+      return;
+    }
+
+    const params = new URLSearchParams({
+      api_key: THINGSPEAK_WRITE_KEY,
+      field1: s.pm1,
+      field2: s.pm25,
+      field3: s.pm10,
+      field4: s.co2,
+      field5: s.temp,
+      field6: s.hum,
+      field7: gps.lat,
+      field8: gps.lon,
+      status: 'browser-combined'
+    });
+
+    const r = await fetch(THINGSPEAK_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: params.toString()
+    });
+    if (!r.ok) throw new Error(`ThingSpeak HTTP ${r.status}`);
+    console.log('ThingSpeak OK');
+  } catch (e) {
+    console.warn('Combined upload failed:', e.message);
+  }
+}
+
+// run once immediately, then every 80 s
+sendCombined();
+setInterval(sendCombined, 80000);
+
+</script>
+<!--
 <script>
 const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // ThingSpeak Write API Key
 const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update";
@@ -116,6 +189,7 @@ document.getElementById("stopBtn").addEventListener("click", () => {
   document.getElementById("status").textContent = "Stopped";
 });
 </script>
+  -->
 
 </body>
 </html>
