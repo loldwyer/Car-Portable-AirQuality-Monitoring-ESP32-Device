@@ -323,8 +323,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // new
   $('#demoBtn')?.addEventListener('click', () => {
+  console.log('Demo button clicked');
   if (demoTimer) stopDemo(); else startDemo();
 });
+
   $('#toggleFollowBtn')?.addEventListener('click', toggleFollow);
   $('#clearPathBtn')?.addEventListener('click', clearPath);
 
