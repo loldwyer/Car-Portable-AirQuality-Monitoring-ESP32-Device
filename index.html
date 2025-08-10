@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>GPS → ThingSpeak + Merge Viewer</title>
+  <title>30s GPS → ThingSpeak + Merge Viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -74,7 +74,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 let marker;
 
 /* ==== GPS writer (80 s slotting) ==== */
-const SLOT_MS = 80000;                 // match ESP32 period
+const SLOT_MS = 30000;                 // match ESP32 period
 let gpsWatchId = null;
 let lastLat = null, lastLon = null;
 let slotTimer = null;
