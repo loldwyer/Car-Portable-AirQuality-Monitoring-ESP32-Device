@@ -2,32 +2,30 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>GPS to ESP32 + ThingSpeak</title>
+  <title>GPS → ThingSpeak</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     body { font-family: sans-serif; padding: 1rem; }
-    #map { height: 400px; border-radius: 8px; }
+    #map { height: 400px; border-radius: 8px; margin-top: 10px; }
     .btn { padding: 0.6rem 1rem; margin: 0.3rem; border: none; border-radius: 6px; cursor: pointer; }
     .primary { background: #2563eb; color: white; }
-    .warn { background: #f59e0b; color: white; }
     .ghost { background: #ccc; }
   </style>
 </head>
 <body>
 
-<h1>GPS → ESP32 → ThingSpeak</h1>
-<p>ESP32 IP: <strong id="espIp">10.229.188.187</strong></p>
+<h1>GPS → ThingSpeak</h1>
 <p>Status: <span id="status">Idle</span></p>
-<button class="btn primary" id="startBtn">Start Test</button>
-<button class="btn ghost" id="stopBtn">Stop Test</button>
+<button class="btn primary" id="startBtn">Start Upload</button>
+<button class="btn ghost" id="stopBtn">Stop Upload</button>
 
 <div id="map"></div>
 
 <script>
-const ESP32_IP = document.getElementById("espIp").textContent.trim();
-const statusEl = document.getElementById("status");
+const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // <-- Replace with your Write API Key
+const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update";
 
 let map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -38,29 +36,29 @@ let marker;
 let gpsWatchId = null;
 let sendTimer = null;
 
-// Send GPS to ESP32
-async function sendLocation(lat, lon) {
+async function sendToThingSpeak(lat, lon) {
   try {
-    await fetch(`http://${ESP32_IP}/location`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lat, lon })
-    });
-    statusEl.textContent = `Sent: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    let url = `${THINGSPEAK_UPDATE_URL}?api_key=${THINGSPEAK_API_KEY}&field7=${lat}&field8=${lon}`;
+    let res = await fetch(url);
+    let text = await res.text();
+    if (text.trim() === "0") {
+      document.getElementById("status").textContent = "ThingSpeak rejected update";
+    } else {
+      document.getElementById("status").textContent = `Uploaded: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    }
   } catch (err) {
-    console.error("Error sending location:", err);
-    statusEl.textContent = "Error sending location";
+    console.error(err);
+    document.getElementById("status").textContent = "Error uploading to ThingSpeak";
   }
 }
 
-// Start GPS tracking
 document.getElementById("startBtn").addEventListener("click", () => {
   if (!navigator.geolocation) {
     alert("Geolocation not supported");
     return;
   }
 
-  statusEl.textContent = "Starting GPS...";
+  document.getElementById("status").textContent = "Starting GPS...";
   
   gpsWatchId = navigator.geolocation.watchPosition(pos => {
     const lat = pos.coords.latitude;
@@ -71,22 +69,21 @@ document.getElementById("startBtn").addEventListener("click", () => {
     map.setView([lat, lon], 16);
 
     // Send immediately
-    sendLocation(lat, lon);
+    sendToThingSpeak(lat, lon);
 
-    // Also send every 10 seconds
+    // Send every 15 seconds
     if (!sendTimer) {
       sendTimer = setInterval(() => {
-        sendLocation(lat, lon);
-      }, 10000);
+        sendToThingSpeak(lat, lon);
+      }, 15000);
     }
   }, err => {
     console.error(err);
-    statusEl.textContent = "GPS error";
+    document.getElementById("status").textContent = "GPS error";
   }, { enableHighAccuracy: true });
 });
 
-// Stop GPS tracking
-document.getElementById("stopBtn").addEventListener("click", async () => {
+document.getElementById("stopBtn").addEventListener("click", () => {
   if (gpsWatchId) {
     navigator.geolocation.clearWatch(gpsWatchId);
     gpsWatchId = null;
@@ -95,14 +92,7 @@ document.getElementById("stopBtn").addEventListener("click", async () => {
     clearInterval(sendTimer);
     sendTimer = null;
   }
-
-  // Tell ESP32 to stop using GPS
-  try {
-    await fetch(`http://${ESP32_IP}/stopLocation`, { method: "POST" });
-    statusEl.textContent = "GPS stopped";
-  } catch (err) {
-    console.error("Error stopping GPS:", err);
-  }
+  document.getElementById("status").textContent = "Stopped";
 });
 </script>
 
