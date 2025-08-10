@@ -21,35 +21,15 @@
     .kv { font-size:.95rem; color:#444; }
     .kv span { display:inline-block; min-width:7ch; font-weight:600; }
     section { padding: 2rem 1rem; max-width: 1200px; margin: auto;}
-    /* ===== NAV ===== */
-    .topnav { background-color: #ffffff; border-bottom: 1px solid #ddd; position: sticky; top: 0; z-index: 999; }
-    .topnav ul { display: flex; justify-content: center; align-items: center; margin: 0; padding: 0.75rem 0; list-style: none; background-color: #ffffff;}
-    .topnav ul li { margin: 0 1rem; }
-    .topnav a { text-decoration: none; color: #0a58ca; font-weight: 600; font-size: 1rem; padding: 0.5rem 1rem; border-radius: 5px; transition: background-color 0.3s, color 0.3s; }
-    .topnav a:hover,.topnav a.active { background-color: #0a58ca; color: #fff; }
-    /* ===== HEADER WITH LOGO LEFT ===== */
     header { background: linear-gradient(135deg, #002663, #004080); color: #f0f2f5; padding: 2.5rem 1rem; border-bottom: 5px solid #fdb913; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
     .header-layout { display: flex; align-items: center; justify-content: flex-start; max-width: 1200px; margin: 0 auto; gap: 2rem; flex-wrap: wrap; }
-    .logo-container { display: flex; align-items: flex-start; background-color: transparent; border-right: 2px solid rgba(255, 255, 255, 0.2); padding: 0; margin: 0; }
-    .dcu-logo-left { height: 100%; max-height: 160px; width: auto; object-fit: contain; margin: 0; padding: 0; align-self: stretch; }
+    .logo-container { display: flex; align-items: flex-start; border-right: 2px solid rgba(255, 255, 255, 0.2); }
+    .dcu-logo-left { max-height: 160px; object-fit: contain; }
     .header-content {text-align: center; flex: 1;}
-    .header-content h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.75rem; color: #ffffff; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); }
+    .header-content h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.75rem; color: #ffffff; }
     .header-content .tagline,.header-content .author { font-size: 1.1rem; color: #d8dce3; margin: 0.3rem 0; }
-    /* ====== SENSOR SECTION ====== */
-    label { font-size: 1.1rem; font-weight: 600; }
-    select { font-size: 1rem; padding: 0.5rem; margin-left: 0.5rem; border-radius: 6px; border: 1px solid #ccc; }
-    /* ====== RESPONSIVE ====== */
-    @media (max-width: 768px) {
-      .tab-box { flex: 1 1 100%; }
-      .topnav ul { flex-direction: column; gap: 0.5rem; }
-      header h1 { font-size: 1.5rem; }
-      #map { height: 360px; }
-    }
-    @media (max-width: 600px) {
-      .header-layout { flex-direction: column; align-items: center; }
-      .dcu-logo-left { margin-bottom: 1rem; }
-      #map { height: 320px; }
-    }  
+    @media (max-width: 768px) { #map { height: 360px; } }
+    @media (max-width: 600px) { .header-layout { flex-direction: column; } #map { height: 320px; } }  
   </style>
 </head>
 <body>
@@ -60,7 +40,7 @@
       <img src="images/dcu_logo.jpg" class="dcu-logo-left" alt="DCU Logo" />
     </div>
     <div class="header-content">
-      <h1>Car Portable Urban Air Quality Monitor</h1>
+      <h1>The Car Portable Urban Air Quality Monitor</h1>
       <p class="tagline">Live CO₂, PM, RH/Temp via ThingSpeak + GPS (opt-in)</p>
       <p class="author">Lauren Dwyer | Student No. 38529 | MECE1</p>
     </div>
@@ -78,9 +58,9 @@
     <span id="espStatus">idle</span>
   </p>
   <p>
-    <button id="startGpsBtn" class="btn primary">Start Test</button>
+    <button id="startBtn" class="btn primary">Start Test</button>
     <button id="pushNowBtn" class="btn warn">Push Now</button>
-    <button id="stopGpsBtn" class="btn ghost">Stop</button>
+    <button id="stopBtn" class="btn ghost">Stop</button>
     <span id="gpsStatus" class="status"></span>
   </p>
   <div id="map"></div>
@@ -91,66 +71,91 @@
 </footer>
 
 <script>
-const ESP32_IP = "http://10.229.188.187"; // change to your ESP32 IP
+const ESP32_IP = "http://10.229.188.187"; // your ESP32
+let watchId = null;
 
-let map = L.map('map').setView([0, 0], 2);
+// Map
+const map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap'
 }).addTo(map);
 let marker = null;
-
 function updateMap(lat, lon) {
-  if (marker) {
-    marker.setLatLng([lat, lon]);
-  } else {
-    marker = L.marker([lat, lon]).addTo(map);
-  }
+  if (marker) marker.setLatLng([lat, lon]);
+  else marker = L.marker([lat, lon]).addTo(map);
   map.setView([lat, lon], 15);
 }
 
-async function startTest() {
-  document.getElementById("gpsStatus").textContent = "Starting...";
-  await fetch(`${ESP32_IP}/startUploads`, { method: "POST" });
-
-  if (navigator.geolocation) {
-    navigator.geolocation.watchPosition(pos => {
-      const lat = pos.coords.latitude;
-      const lon = pos.coords.longitude;
-      document.getElementById("latDisp").textContent = lat.toFixed(6);
-      document.getElementById("lonDisp").textContent = lon.toFixed(6);
-      updateMap(lat, lon);
-
-      fetch(`${ESP32_IP}/location`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon })
-      });
+// Helpers
+async function post(path, body) {
+  try {
+    const res = await fetch(`${ESP32_IP}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : null
     });
-  }
+    return res.ok;
+  } catch (e) { return false; }
 }
 
-async function stopTest() {
-  document.getElementById("gpsStatus").textContent = "Stopping...";
-  await fetch(`${ESP32_IP}/stopUploads`, { method: "POST" });
+function setStatus(msg) {
+  document.getElementById("gpsStatus").textContent = msg || "";
+}
+
+// Start: enable uploads AND start GPS stream
+document.getElementById("startBtn").onclick = async () => {
+  setStatus("Starting…");
+  const ok = await post("/startUploads");
+  document.getElementById("espStatus").textContent = ok ? "uploads enabled" : "ESP32 not reachable";
+
+  if (!navigator.geolocation) {
+    setStatus("Geolocation not supported");
+    return;
+  }
+
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+
+  watchId = navigator.geolocation.watchPosition(async pos => {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    document.getElementById("latDisp").textContent = lat.toFixed(6);
+    document.getElementById("lonDisp").textContent = lon.toFixed(6);
+    updateMap(lat, lon);
+    // stream GPS to ESP32
+    await post("/location", { lat, lon });
+    setStatus("Streaming GPS + uploads active");
+  }, err => {
+    setStatus(`GPS error: ${err.message}`);
+  }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 });
+};
+
+// Push Now: single-shot location send (does NOT start watch)
+document.getElementById("pushNowBtn").onclick = () => {
+  if (!navigator.geolocation) return setStatus("Geolocation not supported");
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    document.getElementById("latDisp").textContent = lat.toFixed(6);
+    document.getElementById("lonDisp").textContent = lon.toFixed(6);
+    updateMap(lat, lon);
+    await post("/location", { lat, lon });
+    setStatus("Pushed one GPS fix");
+  }, err => setStatus(`GPS error: ${err.message}`));
+};
+
+// Stop: stop GPS stream AND disable uploads (also tell ESP32 to stop using GPS)
+document.getElementById("stopBtn").onclick = async () => {
+  setStatus("Stopping…");
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  await post("/stopUploads");
+  await post("/stopLocation");
   document.getElementById("latDisp").textContent = "—";
   document.getElementById("lonDisp").textContent = "—";
-}
-
-document.getElementById("startGpsBtn").onclick = startTest;
-document.getElementById("stopGpsBtn").onclick = stopTest;
-
-document.getElementById("pushNowBtn").onclick = async () => {
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(pos => {
-      const lat = pos.coords.latitude;
-      const lon = pos.coords.longitude;
-      fetch(`${ESP32_IP}/location`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon })
-      });
-    });
-  }
+  document.getElementById("espStatus").textContent = "uploads disabled";
+  setStatus("Stopped");
 };
 </script>
 
