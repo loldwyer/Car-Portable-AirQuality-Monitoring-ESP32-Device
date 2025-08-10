@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ThingSpeak Combiner (GPS + ESP32)</title>
+  <title>The ThingSpeak Combiner (GPS + ESP32)</title>
 
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
@@ -64,158 +64,32 @@
 
 </div>
 
-<footer>OpenStreetMap © contributors • Reads sensor fields from ThingSpeak, adds GPS, writes a combined entry</footer>
+<footer>Reads sensor fields from ThingSpeak, adds GPS, writes a combined entry (POST with beacon fallback)</footer>
 
 <script>
-/* ========= CONFIG =========
-   IMPORTANT:
-   1) Leave the ESP32 to upload its sensors (fields 1–6) every 80 s.
-   2) Fill in THINGSPEAK_READ_KEY if your channel is private.
+/* ===== CONFIG =====
+   Put your keys here. If the channel is private, fill THINGSPEAK_READ_KEY.
 */
 const CHANNEL_ID = 2960675;
-const THINGSPEAK_WRITE_KEY = '9YXHS30JF6Z9YHXI';   // write key
-const THINGSPEAK_READ_KEY  = '';                   // <-- put Read API key if channel is private ('' if public)
+const THINGSPEAK_WRITE_KEY = '9YXHS30JF6Z9YHXI';   // WRITE key
+const THINGSPEAK_READ_KEY  = '';                   // READ key if private; '' if public
 const UPLOAD_PERIOD_MS = 80000;                    // 80 s
 
-/* ========= ENDPOINTS ========= */
+/* ===== URLs ===== */
 const READ_LAST_URL = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds/last.json`;
-const UPDATE_URL    = 'https://api.thingspeak.com/update';   // GET
+const UPDATE_POST   = 'https://api.thingspeak.com/update.json';  // POST (preferred)
+const UPDATE_GET    = 'https://api.thingspeak.com/update';       // GET (beacon fallback)
 
-/* ========= STATE ========= */
+/* ===== STATE ===== */
 let map, marker;
-let lastGps = null; // {lat, lon, ts}
+let lastGps = null;
 let countdown = UPLOAD_PERIOD_MS/1000;
-let countdownTimer, uploaderTimer;
 
-/* ========= UI HELPERS ========= */
-const $ = sel => document.querySelector(sel);
-function setText(id, v){ const el=$(id); if(el) el.textContent = v; }
+/* ===== UI helpers ===== */
+const $ = s => document.querySelector(s);
+function setText(sel, v){ const el=$(sel); if (el) el.textContent = v; }
 function logMsg(msg, cls='muted'){ const el=$("#log"); if(el){ el.className=cls; el.textContent=msg; }}
 
-/* ========= MAP ========= */
+/* ===== Map & GPS ===== */
 function initMap() {
-  map = L.map('map', { zoomControl: true }).setView([53.35, -6.26], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19, attribution: '&copy; OpenStreetMap'
-  }).addTo(map);
-  marker = L.marker([53.35, -6.26]).addTo(map).bindPopup('Waiting for GPS…');
-}
-
-/* ========= GEOLOCATION ========= */
-function startGPSWatch() {
-  if (!('geolocation' in navigator)) {
-    logMsg('Geolocation not available on this device', 'err');
-    return;
-  }
-  navigator.geolocation.watchPosition(
-    pos => {
-      const lat = +pos.coords.latitude;
-      const lon = +pos.coords.longitude;
-      lastGps = { lat, lon, ts: Date.now() };
-      setText('#lat', lat.toFixed(6));
-      setText('#lon', lon.toFixed(6));
-      marker.setLatLng([lat, lon]).setPopupContent(`You are here<br>${lat.toFixed(6)}, ${lon.toFixed(6)}`);
-      map.setView([lat, lon], Math.max(map.getZoom(), 15));
-    },
-    err => { logMsg(`GPS error: ${err.message}`, 'err'); },
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-  );
-}
-
-function haveFreshGps() {
-  return lastGps && (Date.now() - lastGps.ts) < 150000; // 150 s freshness
-}
-
-/* ========= READ SENSORS FROM THINGSPEAK ========= */
-async function readLastSensorsFromTS() {
-  const params = new URLSearchParams();
-  if (THINGSPEAK_READ_KEY) params.set('api_key', THINGSPEAK_READ_KEY);
-  const url = `${READ_LAST_URL}?${params.toString()}`;
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error(`Read last HTTP ${r.status}`);
-  const j = await r.json();
-
-  // fields 1..6 (strings -> numbers or null)
-  const s = {
-    pm1:  j.field1 != null ? +j.field1 : null,
-    pm25: j.field2 != null ? +j.field2 : null,
-    pm10: j.field3 != null ? +j.field3 : null,
-    co2:  j.field4 != null ? +j.field4 : null,
-    temp: j.field5 != null ? +j.field5 : null,
-    hum:  j.field6 != null ? +j.field6 : null,
-  };
-
-  // update UI
-  setText('#pm1',  s.pm1  ?? '—');
-  setText('#pm25', s.pm25 ?? '—');
-  setText('#pm10', s.pm10 ?? '—');
-  setText('#co2',  s.co2  ?? '—');
-  setText('#temp', s.temp ?? '—');
-  setText('#hum',  s.hum  ?? '—');
-
-  return s;
-}
-
-/* ========= WRITE COMBINED ENTRY ========= */
-async function sendCombined() {
-  try {
-    if (!haveFreshGps()) {
-      logMsg('Skip: GPS not ready yet', 'warn');
-      return;
-    }
-
-    logMsg('Reading latest sensors from ThingSpeak…');
-    const s = await readLastSensorsFromTS();
-
-    // Build query; leave any missing sensor fields blank (don’t force zeros)
-    const qs = new URLSearchParams({ api_key: THINGSPEAK_WRITE_KEY, status: 'browser-combined' });
-    if (s.pm1  != null) qs.set('field1', s.pm1);
-    if (s.pm25 != null) qs.set('field2', s.pm25);
-    if (s.pm10 != null) qs.set('field3', s.pm10);
-    if (s.co2  != null) qs.set('field4', s.co2);
-    if (s.temp != null) qs.set('field5', s.temp);
-    if (s.hum  != null) qs.set('field6', s.hum);
-    qs.set('field7', lastGps.lat);
-    qs.set('field8', lastGps.lon);
-
-    logMsg('Uploading combined entry…');
-    const r = await fetch(`${UPDATE_URL}?${qs.toString()}`, { method: 'GET', cache: 'no-store' });
-    if (!r.ok) throw new Error(`Update HTTP ${r.status}`);
-    const text = await r.text();
-    const entryId = parseInt(text, 10) || 0;
-    if (entryId === 0) throw new Error('ThingSpeak rejected update (rate limit or bad key)');
-
-    const when = new Date().toLocaleTimeString();
-    setText('#lastUpload', `${when} (entry ${entryId})`);
-    logMsg('ThingSpeak update successful ✔', 'ok');
-  } catch (e) {
-    logMsg(`Upload failed: ${e.message}`, 'err');
-  }
-}
-
-/* ========= TIMERS ========= */
-function startTimers() {
-  // countdown display
-  setText('#countdown', `${countdown}s`);
-  setInterval(() => {
-    countdown = (countdown <= 1) ? UPLOAD_PERIOD_MS/1000 : (countdown - 1);
-    setText('#countdown', `${countdown}s`);
-  }, 1000);
-
-  // uploader every 80 s + one early attempt after 5 s
-  setInterval(sendCombined, UPLOAD_PERIOD_MS);
-  setTimeout(sendCombined, 5000);
-}
-
-/* ========= BOOT ========= */
-window.addEventListener('DOMContentLoaded', () => {
-  $("#chanDisp").textContent = CHANNEL_ID;
-  initMap();
-  startGPSWatch();
-  startTimers();
-  $("#pushNow").addEventListener('click', sendCombined);
-});
-</script>
-
-</body>
-</html>
+  map = L.map('map').setView([53.35, -6.26]
