@@ -6,7 +6,8 @@ const TS_WRITE_KEY  = "9YXHS30JF6Z9YHXI";
 const PUSH_PERIOD   = 80_000; // 80 seconds
 
 // If this page is HTTPS and ESP32 is HTTP (on phone hotspot), browser will block requests.
-// Easiest: host this page from ESP32 (HTTP). Otherwise set ESP32_BASE to its IP (HTTP).
+// Easiest for local dev: serve this page on http://localhost (secure context exception for geolocation).
+// Otherwise set ESP32_BASE to its IP (HTTP) and ensure you're not on HTTPS, or proxy the ESP32 over HTTPS.
 const ESP32_BASE = ""; // e.g., "http://192.168.4.1"
 
 // --- State ---
@@ -30,21 +31,25 @@ function ensureMapInit() {
   if (!el) return;
   mapLeaflet = L.map(el).setView([53.3498, -6.2603], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap'
+    attribution: '&copy; OpenStreetMap contributors'
   }).addTo(mapLeaflet);
 }
+
 function updateMap(lat, lon, accuracy) {
   if (!mapLeaflet) return;
   if (!marker) marker = L.marker([lat, lon]).addTo(mapLeaflet);
   else marker.setLatLng([lat, lon]);
-  marker.bindPopup(Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>±${Math.round(accuracy||0)} m);
+  marker.bindPopup(
+    `Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>±${Math.round(accuracy || 0)} m`
+  );
   if (mapLeaflet.getZoom() < 14) mapLeaflet.setView([lat, lon], 14, { animate: true });
 }
 
 // --- URL helpers ---
 function sameOriginUrl(path) {
-  if (!ESP32_BASE) return path.startsWith("/") ? path : /${path};
-  return ${ESP32_BASE}${path.startsWith("/") ? path : /${path}};
+  const p = path.startsWith("/") ? path : `/${path}`;
+  if (!ESP32_BASE) return p;
+  return `${ESP32_BASE}${p}`;
 }
 function isHttpsPage() { return location.protocol === "https:"; }
 function isHttpTarget(url) {
@@ -56,11 +61,16 @@ async function espCall(path) {
   const url = sameOriginUrl(path);
   if (isHttpsPage() && isHttpTarget(url)) {
     // Mixed content would be blocked — just show a hint and skip
-    throw new Error("Blocked: page is HTTPS but ESP32 is HTTP. Host page on ESP32 (HTTP) or use HTTPS proxy.");
+    throw new Error("Blocked: page is HTTPS but ESP32 is HTTP. Host page on localhost/HTTP or use an HTTPS proxy.");
   }
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(${path} HTTP ${res.status});
-  return res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);
+  // If ESP32 returns no JSON, tolerate it
+  try {
+    return await res.json();
+  } catch {
+    return {};
+  }
 }
 async function espStart() {
   try {
@@ -88,7 +98,7 @@ async function sendToThingSpeakGPS(lat, lon) {
     field7: String(lat),
     field8: String(lon)
   });
-  const url = https://api.thingspeak.com/update?${params.toString()};
+  const url = `https://api.thingspeak.com/update?${params.toString()}`;
   log("TS GPS payload:", { field7: lat, field8: lon, url: url.replace(TS_WRITE_KEY, '***') });
   const res = await fetch(url, { method: "GET" });
   const text = (await res.text()).trim();
@@ -101,16 +111,16 @@ async function pushGps(reason = "timer") {
   const now = Date.now();
   if (reason !== "manual" && now - lastPushMs < PUSH_PERIOD) {
     const left = Math.max(0, PUSH_PERIOD - (now - lastPushMs));
-    log(Skip push (${reason}); ${Math.round(left/1000)}s left);
+    log(`Skip push (${reason}); ${Math.round(left/1000)}s left`);
     return;
   }
   try {
     const { latitude, longitude } = lastCoords;
     const entry = await sendToThingSpeakGPS(latitude, longitude);
     lastPushMs = now;
-    setStatus(Pushed #${entry} at ${new Date().toLocaleTimeString()});
+    setStatus(`Pushed #${entry} at ${new Date().toLocaleTimeString()}`);
   } catch (e) {
-    setStatus(Push failed: ${e.message});
+    setStatus(`Push failed: ${e.message}`);
     console.error(e);
   }
 }
@@ -121,77 +131,4 @@ function handlePosition(pos) {
   if (latitude == null || longitude == null) return;
 
   lastCoords = { latitude, longitude, accuracy, t: Date.now() };
-  $('#latDisp').textContent = latitude.toFixed(6);
-  $('#lonDisp').textContent = longitude.toFixed(6);
-  updateMap(latitude, longitude, accuracy);
-
-  if (lastPushMs === 0) {
-    // push immediately on first fix
-    pushGps("first-fix");
-  } else {
-    // if overdue, allow a movement-triggered push
-    pushGps("movement");
-  }
-}
-
-function startTest() {
-  ensureMapInit();
-
-  if (!('geolocation' in navigator)) {
-    setStatus("Geolocation not supported on this device.");
-    return;
-  }
-  if (gpsWatchId != null) {
-    setStatus("Already running.");
-    return;
-  }
-
-  // Tell ESP32 to begin its own 80s sensor pushes (fields 1–6)
-  espStart();
-
-  setStatus("Starting… allow location access.");
-  gpsWatchId = navigator.geolocation.watchPosition(
-    handlePosition,
-    err => { setStatus(GPS error: ${err.message || err.code}); },
-    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
-  );
-
-  // Safety timer: ensure a GPS push at least every 80s
-  if (!safetyTimer) {
-    safetyTimer = setInterval(() => pushGps("timer"), PUSH_PERIOD);
-  }
-}
-
-function stopTest() {
-  if (gpsWatchId != null) {
-    navigator.geolocation.clearWatch(gpsWatchId);
-    gpsWatchId = null;
-  }
-  if (safetyTimer) {
-    clearInterval(safetyTimer);
-    safetyTimer = null;
-  }
-  // Tell ESP32 to stop its periodic pushes
-  espStop();
-
-  setStatus("Stopped.");
-  setEsp("idle");
-}
-
-function pushNowManual() {
-  if (!lastCoords) { setStatus("No GPS fix yet."); return; }
-  pushGps("manual");
-}
-
-// Handle page visibility (helps on mobile)
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") pushGps("visibility");
-});
-
-// --- Wire UI ---
-document.addEventListener("DOMContentLoaded", () => {
-  $('#startGpsBtn')?.addEventListener('click', startTest);
-  $('#stopGpsBtn')?.addEventListener('click', stopTest);
-  $('#pushNowBtn')?.addEventListener('click', pushNowManual);
-  ensureMapInit();
-});
+  $('#latDisp').textContent = latitude.toFixed(
