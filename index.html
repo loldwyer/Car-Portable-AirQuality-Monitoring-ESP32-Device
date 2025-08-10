@@ -100,12 +100,17 @@
     <span>ESP32:</span>
     <span id="espStatus">idle</span>
   </p>
-  <p>
-    <button id="startGpsBtn" class="btn primary">Start Test</button>
-    <button id="pushNowBtn" class="btn warn">Push Now</button>
-    <button id="stopGpsBtn" class="btn ghost">Stop</button>
-    <span id="gpsStatus" class="status"></span>
-  </p>
+<p>
+  <button id="startGpsBtn" class="btn primary">Start Test</button>
+  <button id="pushNowBtn" class="btn warn">Push Now</button>
+  <button id="stopGpsBtn" class="btn ghost">Stop</button>
+
+  <!-- new -->
+  <button id="toggleFollowBtn" class="btn ghost">Follow: on</button>
+  <button id="clearPathBtn" class="btn ghost">Clear Path</button>
+
+  <span id="gpsStatus" class="status"></span>
+</p>
 
   <div id="map" aria-label="Live phone GPS map"></div>
 </section>
