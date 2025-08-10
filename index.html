@@ -38,45 +38,22 @@
     /* ====== SENSOR SECTION ====== */
     label { font-size: 1.1rem; font-weight: 600; }
     select { font-size: 1rem; padding: 0.5rem; margin-left: 0.5rem; border-radius: 6px; border: 1px solid #ccc; }
-    /* ====== TABS ====== */
-    .tabs { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
-    .tablink { background-color: #eee; border: none; padding: 10px 20px; font-size: 1rem; cursor: pointer; font-weight: bold; border-radius: 5px; transition: 0.3s; }
-    .tablink:hover { background-color: #cce0ff; }
-    .tablink.active { background-color: #0a58ca; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    /* ====== TAB GRID ====== */
-    .tab-group { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; margin-top: 1rem; }
-    .tabcontent { display: none; }
-    .tab-box { flex: 1 1 30%; min-width: 300px; background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); box-sizing: border-box; overflow: hidden; transition: transform 0.3s ease; }
-    .tab-box:hover { transform: translateY(-4px); box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
-    .tab-box p { font-size: 1.2rem; font-weight: bold; margin-bottom: 0.75rem; }
-    /* Let the GPS card expand and show a big map */
-    #gps.tab-box { max-height: none; }
-    /* ====== IFRAME ====== */
-    iframe { width: 100%; height: 325px; border: none; border-radius: 8px; overflow: hidden; }
-    /* ====== FOOTER ====== */
-    footer { text-align: center; padding: 1rem; background: #f0f0f0; font-size: 0.9rem; color: #666; margin-top: 2rem; }
-
-/* ====== RESPONSIVE ====== */
-@media (max-width: 768px) {
-  .tab-box { flex: 1 1 100%; }
-  .topnav ul { flex-direction: column; gap: 0.5rem; }
-  .tablink { font-size: 0.95rem; padding: 8px 14px; }
-  header h1 { font-size: 1.5rem; }
-  iframe { height: 300px; }
-  #map { height: 360px; }
-}
-@media (max-width: 600px) {
-  .header-layout { flex-direction: column; align-items: center; }
-  .dcu-logo-left { margin-bottom: 1rem; }
-  iframe { height: 280px; }
-  #map { height: 320px; }
-}  
+    /* ====== RESPONSIVE ====== */
+    @media (max-width: 768px) {
+      .tab-box { flex: 1 1 100%; }
+      .topnav ul { flex-direction: column; gap: 0.5rem; }
+      header h1 { font-size: 1.5rem; }
+      #map { height: 360px; }
+    }
+    @media (max-width: 600px) {
+      .header-layout { flex-direction: column; align-items: center; }
+      .dcu-logo-left { margin-bottom: 1rem; }
+      #map { height: 320px; }
+    }  
   </style>
 </head>
 <body>
 
-  
-<!-- Header -->
 <header>
   <div class="header-layout">
     <div class="logo-container">
@@ -106,16 +83,76 @@
     <button id="stopGpsBtn" class="btn ghost">Stop</button>
     <span id="gpsStatus" class="status"></span>
   </p>
-
-  <div id="map" aria-label="Live phone GPS map"></div>
+  <div id="map"></div>
 </section>
-
 
 <footer>
   <p style="text-align:center;">&copy; 2025</p>
 </footer>
 
-<script src="app.js?v=2"></script>
+<script>
+const ESP32_IP = "http://192.168.4.1"; // change to your ESP32 IP
+
+let map = L.map('map').setView([0, 0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+let marker = null;
+
+function updateMap(lat, lon) {
+  if (marker) {
+    marker.setLatLng([lat, lon]);
+  } else {
+    marker = L.marker([lat, lon]).addTo(map);
+  }
+  map.setView([lat, lon], 15);
+}
+
+async function startTest() {
+  document.getElementById("gpsStatus").textContent = "Starting...";
+  await fetch(`${ESP32_IP}/startUploads`, { method: "POST" });
+
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(pos => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      document.getElementById("latDisp").textContent = lat.toFixed(6);
+      document.getElementById("lonDisp").textContent = lon.toFixed(6);
+      updateMap(lat, lon);
+
+      fetch(`${ESP32_IP}/location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon })
+      });
+    });
+  }
+}
+
+async function stopTest() {
+  document.getElementById("gpsStatus").textContent = "Stopping...";
+  await fetch(`${ESP32_IP}/stopUploads`, { method: "POST" });
+  document.getElementById("latDisp").textContent = "—";
+  document.getElementById("lonDisp").textContent = "—";
+}
+
+document.getElementById("startGpsBtn").onclick = startTest;
+document.getElementById("stopGpsBtn").onclick = stopTest;
+
+document.getElementById("pushNowBtn").onclick = async () => {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      fetch(`${ESP32_IP}/location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon })
+      });
+    });
+  }
+};
+</script>
 
 </body>
-</html>    
+</html>
