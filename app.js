@@ -12,10 +12,16 @@ const ESP32_BASE = ""; // e.g., "http://192.168.4.1"
 // --- State ---
 let mapLeaflet = null;
 let marker = null;
+let accuracyCircle = null;
+let polyline = null;
+let path = []; // [ [lat, lng], ... ] (restored from localStorage)
 let gpsWatchId = null;
 let safetyTimer = null;
 let lastCoords = null;
 let lastPushMs = 0;
+let follow = true;
+
+const MIN_MOVE_METERS = 2; // ignore tiny GPS jitter
 
 // --- UI helpers ---
 const $ = s => document.querySelector(s);
@@ -23,22 +29,52 @@ const log = (...a) => console.log(...a);
 const setStatus = msg => { const el = $('#gpsStatus'); if (el) el.textContent = msg; };
 const setEsp = msg => { const el = $('#espStatus'); if (el) el.textContent = msg; };
 
+// --- Restore any previous breadcrumb (useful during dev reloads) ---
+try {
+  const stored = JSON.parse(localStorage.getItem('gps_path') || '[]');
+  if (Array.isArray(stored)) path = stored.slice();
+} catch { /* ignore */ }
+
 // --- Map ---
 function ensureMapInit() {
   if (mapLeaflet) return;
   const el = document.getElementById('map');
   if (!el) return;
-  mapLeaflet = L.map(el).setView([53.3498, -6.2603], 12);
+
+  mapLeaflet = L.map(el, { zoomControl: true }).setView([53.3498, -6.2603], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap'
   }).addTo(mapLeaflet);
+
+  polyline = L.polyline(path, { weight: 4, opacity: 0.9 }).addTo(mapLeaflet);
+  if (path.length >= 2) {
+    mapLeaflet.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+  }
 }
-function updateMap(lat, lon, accuracy) {
+
+function updateVisuals(lat, lon, accuracy) {
   if (!mapLeaflet) return;
-  if (!marker) marker = L.marker([lat, lon]).addTo(mapLeaflet);
-  else marker.setLatLng([lat, lon]);
+
+  if (!marker) {
+    marker = L.marker([lat, lon], { title: 'You are here' }).addTo(mapLeaflet);
+  } else {
+    marker.setLatLng([lat, lon]);
+  }
+
+  // accuracy circle
+  if (!accuracyCircle) {
+    accuracyCircle = L.circle([lat, lon], { radius: accuracy || 0, stroke: false, fillOpacity: 0.1 }).addTo(mapLeaflet);
+  } else {
+    accuracyCircle.setLatLng([lat, lon]).setRadius(accuracy || 0);
+  }
+
   marker.bindPopup(`Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>±${Math.round(accuracy||0)} m`);
-  if (mapLeaflet.getZoom() < 14) mapLeaflet.setView([lat, lon], 14, { animate: true });
+
+  // Follow behavior
+  if (follow) {
+    const targetZoom = Math.max(mapLeaflet.getZoom(), 16);
+    mapLeaflet.setView([lat, lon], targetZoom, { animate: true });
+  }
 }
 
 // --- URL helpers ---
@@ -116,6 +152,13 @@ async function pushGps(reason = "timer") {
 }
 
 // --- Geolocation ---
+function maybeAppendPoint(lat, lon) {
+  const last = path[path.length - 1];
+  if (!last) return true;
+  const dist = mapLeaflet ? mapLeaflet.distance([lat, lon], last) : 9999;
+  return dist > MIN_MOVE_METERS;
+}
+
 function handlePosition(pos) {
   const { latitude, longitude, accuracy } = pos.coords || {};
   if (latitude == null || longitude == null) return;
@@ -123,13 +166,21 @@ function handlePosition(pos) {
   lastCoords = { latitude, longitude, accuracy, t: Date.now() };
   $('#latDisp').textContent = latitude.toFixed(6);
   $('#lonDisp').textContent = longitude.toFixed(6);
-  updateMap(latitude, longitude, accuracy);
+
+  // Path + visuals
+  ensureMapInit();
+  if (maybeAppendPoint(latitude, longitude)) {
+    path.push([latitude, longitude]);
+    if (polyline) polyline.addLatLng([latitude, longitude]);
+    localStorage.setItem('gps_path', JSON.stringify(path));
+  }
+  updateVisuals(latitude, longitude, accuracy);
 
   if (lastPushMs === 0) {
     // push immediately on first fix
     pushGps("first-fix");
   } else {
-    // if overdue, allow a movement-triggered push
+    // allow movement/overdue triggers
     pushGps("movement");
   }
 }
@@ -183,6 +234,25 @@ function pushNowManual() {
   pushGps("manual");
 }
 
+function toggleFollow() {
+  follow = !follow;
+  const btn = $('#toggleFollowBtn');
+  if (btn) btn.textContent = `Follow: ${follow ? 'on' : 'off'}`;
+  if (follow && marker) {
+    const { lat, lng } = marker.getLatLng();
+    mapLeaflet.setView([lat, lng], Math.max(mapLeaflet.getZoom(), 16), { animate: true });
+  }
+}
+
+function clearPath() {
+  path = [];
+  localStorage.removeItem('gps_path');
+  if (polyline) polyline.setLatLngs([]);
+  if (marker) { marker.remove(); marker = null; }
+  if (accuracyCircle) { accuracyCircle.remove(); accuracyCircle = null; }
+  setStatus("Cleared path & marker.");
+}
+
 // Handle page visibility (helps on mobile)
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") pushGps("visibility");
@@ -193,5 +263,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $('#startGpsBtn')?.addEventListener('click', startTest);
   $('#stopGpsBtn')?.addEventListener('click', stopTest);
   $('#pushNowBtn')?.addEventListener('click', pushNowManual);
-  ensureMapInit();
+
+  // new
+  $('#toggleFollowBtn')?.addEventListener('click', toggleFollow);
+  $('#clearPathBtn')?.addEventListener('click', clearPath);
+
+  ensureMapInit(); // shows any restored path
 });
