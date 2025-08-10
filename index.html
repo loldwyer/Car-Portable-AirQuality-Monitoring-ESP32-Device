@@ -205,7 +205,8 @@ function mergeSameChannel(rows, windowSec){
       pm1: s.pm1, pm25: s.pm25, pm10: s.pm10,
       co2: s.co2, temp: s.temp, hum: s.hum,
       lat: best ? best.lat : '',
-      lon: best ? best.lon : ''
+      lon: best ? best.lon : '',
+      dt_s: best ? Math.round(bestDt/1000) : ''
     });
   }
   return out;
@@ -213,22 +214,33 @@ function mergeSameChannel(rows, windowSec){
 
 function renderTable(rows){
   if (!rows.length) { tbl.innerHTML = '<tr><td>No merged rows</td></tr>'; return; }
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon'];
+  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s'];
   tbl.innerHTML =
     '<thead><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead>' +
     '<tbody>' + rows.map(r => '<tr>' +
       cols.map(c => `<td>${(r[c] ?? '')}</td>`).join('') +
     '</tr>').join('') + '</tbody>';
+
+  // summary stats for dt_s
+  const deltas = rows.map(r=>r.dt_s).filter(v=>typeof v==='number');
+  if (deltas.length){
+    const sum = deltas.reduce((a,b)=>a+b,0);
+    const avg = Math.round(sum/deltas.length);
+    const min = Math.min(...deltas);
+    const max = Math.max(...deltas);
+    setMergeStatus(`Done (${rows.length} merged). Δt [min=${min}s, avg=${avg}s, max=${max}s]`, 'ok');
+  } else {
+    setMergeStatus(`Done (${rows.length} merged). No GPS matches in window.`, 'warn');
+  }
 }
 
 function toCSV(rows){
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon'];
+  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s'];
   const lines = [cols.join(',')].concat(
     rows.map(r => cols.map(c => String(r[c] ?? '')).join(','))
   );
   return lines.join('\n');
 }
-
 document.getElementById('fetchBtn').addEventListener('click', async () => {
   const chId = document.getElementById('chId').value.trim();
   const readKey = document.getElementById('readKey').value.trim();
