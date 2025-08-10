@@ -68,7 +68,7 @@
 /* ========= CONFIG ========= */
 const ESP_BASE = 'http://10.229.188.187';                // your ESP32 IP
 const THINGSPEAK_WRITE_KEY = '9YXHS30JF6Z9YHXI';          // your channel write key
-const THINGSPEAK_URL = 'https://api.thingspeak.com/update.json';
+const THINGSPEAK_URL = 'https://api.thingspeak.com/update'; // <-- GET endpoint
 const UPLOAD_PERIOD_MS = 80000;                           // 80 s
 
 /* ========= STATE ========= */
@@ -141,11 +141,9 @@ async function getSensors() {
 }
 
 /* ========= THINGSPEAK UPLOAD ========= */
-/* Only upload when we have BOTH: fresh GPS (seen in last 2.5 minutes) and all sensors. */
-function readyToUpload(s) {
-  const haveSensors = [s.pm1,s.pm25,s.pm10,s.co2,s.temp,s.hum].every(v => typeof v === 'number');
-  const haveFreshGps = lastGps && (Date.now() - lastGps.ts) < 150000; // 150 s freshness
-  return haveSensors && haveFreshGps;
+// Upload even if some fields are missing: leave missing fields empty (not 0).
+function haveFreshGps() {
+  return lastGps && (Date.now() - lastGps.ts) < 150000; // 150 s freshness
 }
 
 async function sendCombined() {
@@ -153,36 +151,36 @@ async function sendCombined() {
     logMsg('Reading sensors…');
     const s = await getSensors();
 
-    if (!readyToUpload(s)) {
-      logMsg('Skip: waiting for GPS and/or sensors to be ready', 'warn');
+    if (!haveFreshGps()) {
+      logMsg('Skip: GPS not ready yet', 'warn');
       return;
     }
 
     const params = new URLSearchParams({
       api_key: THINGSPEAK_WRITE_KEY,
-      field1: s.pm1,   // PM1.0
-      field2: s.pm25,  // PM2.5
-      field3: s.pm10,  // PM10
-      field4: s.co2,   // CO2
-      field5: s.temp,  // Temp
-      field6: s.hum,   // RH
-      field7: lastGps.lat,
-      field8: lastGps.lon,
       status: 'browser-combined'
     });
+    if (s.pm1  != null) params.set('field1', s.pm1);
+    if (s.pm25 != null) params.set('field2', s.pm25);
+    if (s.pm10 != null) params.set('field3', s.pm10);
+    if (s.co2  != null) params.set('field4', s.co2);
+    if (s.temp != null) params.set('field5', s.temp);
+    if (s.hum  != null) params.set('field6', s.hum);
+    params.set('field7', lastGps.lat);
+    params.set('field8', lastGps.lon);
 
     logMsg('Uploading to ThingSpeak…');
-    const r = await fetch(THINGSPEAK_URL, {
-      method: 'POST',
-      headers: {'Content-Type':'application/x-www-form-urlencoded'},
-      body: params.toString()
-    });
+    // GET to avoid CORS issues
+    const url = `${THINGSPEAK_URL}?${params.toString()}`;
+    const r = await fetch(url, { method: 'GET', cache: 'no-store' });
+
     if (!r.ok) throw new Error(`ThingSpeak HTTP ${r.status}`);
-    const j = await r.json(); // returns entry id or 0
-    if (+j === 0) throw new Error('ThingSpeak rejected update (rate limit?)');
+    const text = await r.text(); // returns entry id as a string
+    const entryId = parseInt(text, 10) || 0;
+    if (entryId === 0) throw new Error('ThingSpeak rejected update (rate limit or bad key)');
 
     const when = new Date().toLocaleTimeString();
-    setText('#lastUpload', `${when} (entry ${j})`);
+    setText('#lastUpload', `${when} (entry ${entryId})`);
     logMsg('ThingSpeak update successful ✔', 'ok');
   } catch (e) {
     logMsg(`Upload failed: ${e.message}`, 'err');
