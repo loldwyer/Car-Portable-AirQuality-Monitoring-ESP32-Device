@@ -101,7 +101,7 @@ document.getElementById("startBtn").addEventListener("click", () => {
     document.getElementById("status").textContent = "GPS error";
   }, { enableHighAccuracy: true });
 
-  sendTimer = setInterval(sendToThingSpeak, 15000); // every 15 sec
+  sendTimer = setInterval(sendToThingSpeak, 60000); // every 15 sec
 });
 
 document.getElementById("stopBtn").addEventListener("click", () => {
