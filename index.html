@@ -1,162 +1,107 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>GPS + ESP32 → ThingSpeak</title>
-  <link rel="stylesheet" href="style.css" />
-
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPS → ThingSpeak</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-
   <style>
-    #map { width: 100%; height: 420px; border-radius: 8px; background:#e9eef5; }
-    .btn { padding:.6rem 1rem; border:0; border-radius:8px; cursor:pointer; font-weight:600; }
-    .btn.primary { background:#2563eb; color:#fff; }
-    .btn.ghost { background:#eef2ff; color:#1f2937; }
-    .btn.warn { background:#f59e0b; color:#111; }
-    .status { display:inline-block; font-size:.9rem; opacity:.9; margin-left:.5rem; min-height:1.2em; }
-    .card { max-width: 1200px; margin: 1rem auto; background:#fff; padding:1rem; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,.08); }
-    .kv { font-size:.95rem; color:#444; }
-    .kv span { display:inline-block; min-width:7ch; font-weight:600; }
-    section { padding: 2rem 1rem; max-width: 1200px; margin: auto;}
-    header { background: linear-gradient(135deg, #002663, #004080); color: #f0f2f5; padding: 2.5rem 1rem; border-bottom: 5px solid #fdb913; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
-    .header-layout { display: flex; align-items: center; justify-content: flex-start; max-width: 1200px; margin: 0 auto; gap: 2rem; flex-wrap: wrap; }
-    .logo-container { display: flex; align-items: flex-start; border-right: 2px solid rgba(255, 255, 255, 0.2); }
-    .dcu-logo-left { max-height: 160px; object-fit: contain; }
-    .header-content {text-align: center; flex: 1;}
-    .header-content h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.75rem; color: #ffffff; }
-    .header-content .tagline,.header-content .author { font-size: 1.1rem; color: #d8dce3; margin: 0.3rem 0; }
-    @media (max-width: 768px) { #map { height: 360px; } }
-    @media (max-width: 600px) { .header-layout { flex-direction: column; } #map { height: 320px; } }  
+    body { font-family: Arial, sans-serif; margin: 0; background: #f5f6fa; }
+    header { padding: 1rem; text-align: center; background: #004080; color: white; }
+    h1 { margin: 0; font-size: 1.5rem; }
+    .controls { text-align: center; margin: 1rem 0; }
+    .btn {
+      padding: .6rem 1rem;
+      border: none;
+      border-radius: 6px;
+      margin: 0 .3rem;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .btn.start { background: #2563eb; color: white; }
+    .btn.stop { background: #ccc; }
+    #map { height: 420px; margin: 1rem auto; width: 95%; border-radius: 8px; }
+    .status { text-align: center; font-size: .95rem; margin-top: .5rem; }
   </style>
 </head>
 <body>
 
 <header>
-  <div class="header-layout">
-    <div class="logo-container">
-      <img src="images/dcu_logo.jpg" class="dcu-logo-left" alt="DCU Logo" />
-    </div>
-    <div class="header-content">
-      <h1>The Car Portable Urban Air Quality Monitor</h1>
-      <p class="tagline">Live CO₂, PM, RH/Temp via ThingSpeak + GPS (opt-in)</p>
-      <p class="author">Lauren Dwyer | Student No. 38529 | MECE1</p>
-    </div>
-  </div>
+  <h1>GPS → ThingSpeak Uploader</h1>
 </header>
 
-<section class="card" id="gps-card">
-  <h2>Test Runner</h2>
-  <p class="kv">
-    <span>GPS:</span>
-    <span id="latDisp">—</span>, <span id="lonDisp">—</span>
-  </p>
-  <p class="kv">
-    <span>ESP32:</span>
-    <span id="espStatus">idle</span>
-  </p>
-  <p>
-    <button id="startBtn" class="btn primary">Start Test</button>
-    <button id="pushNowBtn" class="btn warn">Push Now</button>
-    <button id="stopBtn" class="btn ghost">Stop</button>
-    <span id="gpsStatus" class="status"></span>
-  </p>
-  <div id="map"></div>
-</section>
+<div class="controls">
+  <button id="startBtn" class="btn start">Start GPS</button>
+  <button id="stopBtn" class="btn stop">Stop GPS</button>
+</div>
 
-<footer>
-  <p style="text-align:center;">&copy; 2025</p>
-</footer>
+<div id="map"></div>
+<div class="status">
+  <span id="latDisp">Lat: —</span> | <span id="lonDisp">Lon: —</span>
+</div>
 
 <script>
-const ESP32_IP = "http://10.229.188.187"; // your ESP32
+const ESP32_IP = "10.229.188.187"; // your ESP32's IP
 let watchId = null;
+let map, marker;
 
-// Map
-const map = L.map('map').setView([0, 0], 2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap'
-}).addTo(map);
-let marker = null;
-function updateMap(lat, lon) {
-  if (marker) marker.setLatLng([lat, lon]);
-  else marker = L.marker([lat, lon]).addTo(map);
-  map.setView([lat, lon], 15);
+function initMap() {
+  map = L.map('map').setView([0,0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
 }
 
-// Helpers
-async function post(path, body) {
-  try {
-    const res = await fetch(`${ESP32_IP}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : null
-    });
-    return res.ok;
-  } catch (e) { return false; }
+function sendLocation(lat, lon) {
+  fetch(`http://${ESP32_IP}/location`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lat: lat, lon: lon })
+  }).then(r => r.text()).then(console.log).catch(console.error);
 }
 
-function setStatus(msg) {
-  document.getElementById("gpsStatus").textContent = msg || "";
-}
-
-// Start: enable uploads AND start GPS stream
-document.getElementById("startBtn").onclick = async () => {
-  setStatus("Starting…");
-  const ok = await post("/startUploads");
-  document.getElementById("espStatus").textContent = ok ? "uploads enabled" : "ESP32 not reachable";
-
+function startGPS() {
   if (!navigator.geolocation) {
-    setStatus("Geolocation not supported");
+    alert("Geolocation not supported by your browser.");
     return;
   }
-
-  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-
-  watchId = navigator.geolocation.watchPosition(async pos => {
+  watchId = navigator.geolocation.watchPosition(pos => {
     const lat = pos.coords.latitude;
     const lon = pos.coords.longitude;
-    document.getElementById("latDisp").textContent = lat.toFixed(6);
-    document.getElementById("lonDisp").textContent = lon.toFixed(6);
-    updateMap(lat, lon);
-    // stream GPS to ESP32
-    await post("/location", { lat, lon });
-    setStatus("Streaming GPS + uploads active");
+    document.getElementById('latDisp').textContent = `Lat: ${lat.toFixed(6)}`;
+    document.getElementById('lonDisp').textContent = `Lon: ${lon.toFixed(6)}`;
+
+    // Update map
+    if (!marker) {
+      marker = L.marker([lat, lon]).addTo(map);
+    } else {
+      marker.setLatLng([lat, lon]);
+    }
+    map.setView([lat, lon], 16);
+
+    // Send to ESP32 for ThingSpeak upload
+    sendLocation(lat, lon);
+
   }, err => {
-    setStatus(`GPS error: ${err.message}`);
-  }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 });
-};
+    console.error(err);
+    alert("Error getting GPS location.");
+  }, { enableHighAccuracy: true });
+}
 
-// Push Now: single-shot location send (does NOT start watch)
-document.getElementById("pushNowBtn").onclick = () => {
-  if (!navigator.geolocation) return setStatus("Geolocation not supported");
-  navigator.geolocation.getCurrentPosition(async pos => {
-    const lat = pos.coords.latitude;
-    const lon = pos.coords.longitude;
-    document.getElementById("latDisp").textContent = lat.toFixed(6);
-    document.getElementById("lonDisp").textContent = lon.toFixed(6);
-    updateMap(lat, lon);
-    await post("/location", { lat, lon });
-    setStatus("Pushed one GPS fix");
-  }, err => setStatus(`GPS error: ${err.message}`));
-};
-
-// Stop: stop GPS stream AND disable uploads (also tell ESP32 to stop using GPS)
-document.getElementById("stopBtn").onclick = async () => {
-  setStatus("Stopping…");
+function stopGPS() {
   if (watchId !== null) {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
+    fetch(`http://${ESP32_IP}/stopLocation`, { method: "POST" })
+      .then(r => r.text()).then(console.log).catch(console.error);
   }
-  await post("/stopUploads");
-  await post("/stopLocation");
-  document.getElementById("latDisp").textContent = "—";
-  document.getElementById("lonDisp").textContent = "—";
-  document.getElementById("espStatus").textContent = "uploads disabled";
-  setStatus("Stopped");
-};
+}
+
+document.getElementById('startBtn').addEventListener('click', startGPS);
+document.getElementById('stopBtn').addEventListener('click', stopGPS);
+
+initMap();
 </script>
 
 </body>
