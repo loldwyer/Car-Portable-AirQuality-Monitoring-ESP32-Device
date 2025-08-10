@@ -1,226 +1,123 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ThingSpeak Combiner (GPS + ESP32)</title>
-
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-
+  <meta charset="UTF-8">
+  <title>ESP32 + GPS → ThingSpeak</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    :root { --blue:#2563eb; --bg:#f6f7fb; --text:#111827; }
-    html,body { margin:0; padding:0; background:var(--bg); color:var(--text);
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
-    header { background:linear-gradient(135deg,#002663,#004080); color:#fff; padding:1.25rem 1rem; }
-    header h1 { margin:0; font-size:1.25rem; }
-    .wrap { max-width: 1000px; margin: 0 auto; padding: 1rem; }
-    .card { background:#fff; border-radius:12px; box-shadow:0 8px 20px rgba(0,0,0,.08); padding:1rem; margin:1rem 0; }
-    #map { width:100%; height:420px; border-radius:10px; background:#e9eef5; }
-    .row { display:flex; flex-wrap:wrap; gap:1rem; }
-    .col { flex:1 1 280px; }
-    .kv { font-size:.95rem; line-height:1.6; }
-    .kv b { display:inline-block; min-width:9ch; }
-    .btn { padding:.6rem 1rem; border:0; border-radius:8px; cursor:pointer; font-weight:600; background:var(--blue); color:#fff; }
-    .muted { color:#6b7280; }
-    .ok { color:#16a34a; }
-    .warn { color:#f59e0b; }
-    .err { color:#ef4444; }
-    footer { text-align:center; color:#6b7280; padding:1rem 0 2rem; }
-    @media (max-width: 640px) { #map{height:360px;} }
+    body { font-family: sans-serif; padding: 1rem; }
+    #map { height: 400px; border-radius: 8px; margin-top: 10px; }
+    .btn { padding: 0.6rem 1rem; margin: 0.3rem; border: none; border-radius: 6px; cursor: pointer; }
+    .primary { background: #2563eb; color: white; }
+    .ghost { background: #ccc; }
   </style>
 </head>
 <body>
 
-<header>
-  <div class="wrap">
-    <h1>ThingSpeak Combiner (GPS + ESP32)</h1>
-  </div>
-</header>
+<h1>ESP32 + GPS → ThingSpeak</h1>
+<p>Status: <span id="status">Idle</span></p>
+<button class="btn primary" id="startBtn">Start Upload</button>
+<button class="btn ghost" id="stopBtn">Stop Upload</button>
 
-<div class="wrap">
-
-  <div class="card">
-    <div class="row">
-      <div class="col">
-        <h2 style="margin:0 0 .5rem 0;">Live GPS</h2>
-        <div id="map" aria-label="Live phone GPS map"></div>
-      </div>
-      <div class="col">
-        <h2 style="margin:0 0 .5rem 0;">Status</h2>
-        <p class="kv"><b>Channel:</b> <span id="chanDisp">2960675</span></p>
-        <p class="kv"><b>GPS:</b> <span id="lat">—</span>, <span id="lon">—</span></p>
-        <p class="kv"><b>Sensors (last from TS):</b>
-          PM1=<span id="pm1">—</span>, PM2.5=<span id="pm25">—</span>, PM10=<span id="pm10">—</span><br>
-          CO₂=<span id="co2">—</span> ppm, Temp=<span id="temp">—</span> °C, RH=<span id="hum">—</span> %</p>
-        <p class="kv"><b>Next upload:</b> <span id="countdown">—</span></p>
-        <p class="kv"><b>Last upload:</b> <span id="lastUpload" class="muted">never</span></p>
-        <p id="log" class="muted" style="min-height:1.5em;"></p>
-        <button id="pushNow" class="btn">Push Now</button>
-      </div>
-    </div>
-  </div>
-
-</div>
-
-<footer>Reads sensor fields from ThingSpeak, adds GPS, writes a combined entry (POST with beacon fallback)</footer>
+<div id="map"></div>
+ 
 
 <script>
-/* ===== CONFIG =====
-   Put your keys here. If the channel is private, fill THINGSPEAK_READ_KEY.
-*/
-const CHANNEL_ID = 2960675;
-const THINGSPEAK_WRITE_KEY = '9YXHS30JF6Z9YHXI';   // WRITE key
-const THINGSPEAK_READ_KEY  = '';                   // READ key if private; '' if public
-const UPLOAD_PERIOD_MS = 80000;                    // 80 s
+const THINGSPEAK_API_KEY = "9YXHS30JF6Z9YHXI"; // ThingSpeak Write API Key
+const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update";
+const ESP32_IP = "10.229.188.187"; // ESP32 local IP address
 
-/* ===== URLs ===== */
-const READ_LAST_URL = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds/last.json`;
-const UPDATE_POST   = 'https://api.thingspeak.com/update.json';  // POST (preferred)
-const UPDATE_GET    = 'https://api.thingspeak.com/update';       // GET (beacon fallback)
+let map = L.map('map').setView([0, 0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+let marker;
 
-/* ===== STATE ===== */
-let map, marker;
-let lastGps = null;
-let countdown = UPLOAD_PERIOD_MS/1000;
+let gpsWatchId = null;
+let sendTimer = null;
+let lastLat = null;
+let lastLon = null;
 
-/* ===== UI helpers ===== */
-const $ = s => document.querySelector(s);
-function setText(sel, v){ const el=$(sel); if (el) el.textContent = v; }
-function logMsg(msg, cls='muted'){ const el=$("#log"); if(el){ el.className=cls; el.textContent=msg; }}
-
-/* ===== Map & GPS ===== */
-function initMap() {
-  map = L.map('map').setView([53.35, -6.26], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
-  marker = L.marker([53.35, -6.26]).addTo(map).bindPopup('Waiting for GPS…');
-}
-function startGPSWatch() {
-  if (!navigator.geolocation){ logMsg('Geolocation not available', 'err'); return; }
-  navigator.geolocation.watchPosition(
-    pos => {
-      const lat = +pos.coords.latitude, lon = +pos.coords.longitude;
-      lastGps = {lat, lon, ts: Date.now()};
-      setText('#lat', lat.toFixed(6)); setText('#lon', lon.toFixed(6));
-      marker.setLatLng([lat, lon]).setPopupContent(`${lat.toFixed(6)}, ${lon.toFixed(6)}`);
-      if (map.getZoom() < 15) map.setView([lat, lon], 15);
-    },
-    err => logMsg(`GPS error: ${err.message}`, 'err'),
-    { enableHighAccuracy:true, maximumAge:0, timeout:15000 }
-  );
-}
-const haveFreshGps = () => lastGps && (Date.now() - lastGps.ts) < 150000;
-
-/* ===== Read sensors from ThingSpeak ===== */
-async function readLastSensorsFromTS() {
-  const p = new URLSearchParams(); if (THINGSPEAK_READ_KEY) p.set('api_key', THINGSPEAK_READ_KEY);
-  const url = p.toString() ? `${READ_LAST_URL}?${p}` : READ_LAST_URL;
-  const r = await fetch(url, { cache:'no-store' });
-  if (!r.ok) throw new Error(`Read last HTTP ${r.status}`);
-  const j = await r.json(); // CORS is allowed by ThingSpeak
-  const s = {
-    pm1:  j.field1 != null ? +j.field1 : null,
-    pm25: j.field2 != null ? +j.field2 : null,
-    pm10: j.field3 != null ? +j.field3 : null,
-    co2:  j.field4 != null ? +j.field4 : null,
-    temp: j.field5 != null ? +j.field5 : null,
-    hum:  j.field6 != null ? +j.field6 : null,
-  };
-  setText('#pm1',  s.pm1  ?? '—'); setText('#pm25', s.pm25 ?? '—'); setText('#pm10', s.pm10 ?? '—');
-  setText('#co2',  s.co2  ?? '—'); setText('#temp', s.temp ?? '—'); setText('#hum',  s.hum  ?? '—');
-  return s;
-}
-
-/* ===== Write combined to ThingSpeak ===== */
-async function writeCombinedPOST(payload) {
-  // Try CORS POST first
-  const r = await fetch(UPDATE_POST, {
-    method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body: new URLSearchParams(payload).toString(),
-  });
-  if (!r.ok) throw new Error(`POST HTTP ${r.status}`);
-  // update.json can return text "0" or JSON; just check not "0"
-  let entryId = 0;
-  const contentType = r.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    const j = await r.json();
-    entryId = (typeof j === 'number') ? j : (j.entry_id || 0);
-  } else {
-    const t = await r.text();
-    entryId = parseInt(t, 10) || 0;
-  }
-  if (entryId === 0) throw new Error('ThingSpeak rejected update (rate limit or bad key)');
-  return entryId;
-}
-function writeCombinedBeacon(payload) {
-  // CORS-proof fallback via image beacon
-  const qs = new URLSearchParams(payload).toString();
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(true);
-    img.onerror = () => resolve(true); // even on error, the GET is sent
-    img.src = `${UPDATE_GET}?${qs}&_=${Date.now()}`;
-    // no entry id available with beacon
-  });
-}
-
-async function sendCombined() {
+async function fetchEsp32Data() {
   try {
-    if (!haveFreshGps()) { logMsg('Skip: GPS not ready yet', 'warn'); return; }
-
-    logMsg('Reading latest sensors from ThingSpeak…');
-    const s = await readLastSensorsFromTS();
-
-    const payload = { api_key: THINGSPEAK_WRITE_KEY, status: 'browser-combined' };
-    if (s.pm1  != null) payload.field1 = s.pm1;
-    if (s.pm25 != null) payload.field2 = s.pm25;
-    if (s.pm10 != null) payload.field3 = s.pm10;
-    if (s.co2  != null) payload.field4 = s.co2;
-    if (s.temp != null) payload.field5 = s.temp;
-    if (s.hum  != null) payload.field6 = s.hum;
-    payload.field7 = lastGps.lat;
-    payload.field8 = lastGps.lon;
-
-    logMsg('Uploading (POST)…');
-    let entryId = 0;
-    try {
-      entryId = await writeCombinedPOST(payload);
-    } catch (e) {
-      logMsg(`POST blocked (${e.message}). Using beacon…`, 'warn');
-      await writeCombinedBeacon(payload);
-    }
-
-    const when = new Date().toLocaleTimeString();
-    setText('#lastUpload', entryId ? `${when} (entry ${entryId})` : `${when} (sent)`);
-    logMsg('ThingSpeak update sent ✔', 'ok');
-  } catch (e) {
-    logMsg(`Upload failed: ${e.message}`, 'err');
+    let res = await fetch(`http://${ESP32_IP}/sensors`);
+    return await res.json();
+  } catch (err) {
+    console.error("ESP32 fetch error", err);
+    return {};
   }
 }
 
-/* ===== Timers ===== */
-function startTimers() {
-  setText('#countdown', `${countdown}s`);
-  setInterval(() => {
-    countdown = (countdown <= 1) ? UPLOAD_PERIOD_MS/1000 : (countdown - 1);
-    setText('#countdown', `${countdown}s`);
-  }, 1000);
-  setInterval(sendCombined, UPLOAD_PERIOD_MS);
-  setTimeout(sendCombined, 5000);
+async function sendToThingSpeak() {
+  if (lastLat === null || lastLon === null) {
+    document.getElementById("status").textContent = "No GPS yet...";
+    return;
+  }
+
+  let sensors = await fetchEsp32Data();
+
+  let url = `${THINGSPEAK_UPDATE_URL}?api_key=${THINGSPEAK_API_KEY}` +
+    `&field1=${sensors.pm1 || 0}` +
+    `&field2=${sensors.pm25 || 0}` +
+    `&field3=${sensors.pm10 || 0}` +
+    `&field4=${sensors.co2 || 0}` +
+    `&field5=${sensors.temperature || 0}` +
+    `&field6=${sensors.humidity || 0}` +
+    `&field7=${lastLat}` +
+    `&field8=${lastLon}`;
+
+  try {
+    let res = await fetch(url);
+    let text = await res.text();
+    if (text.trim() === "0") {
+      document.getElementById("status").textContent = "ThingSpeak rejected update";
+    } else {
+      document.getElementById("status").textContent = `Uploaded row #${text.trim()} (${lastLat.toFixed(6)}, ${lastLon.toFixed(6)})`;
+    }
+  } catch (err) {
+    console.error(err);
+    document.getElementById("status").textContent = "Upload error";
+  }
 }
 
-/* ===== Boot ===== */
-window.addEventListener('DOMContentLoaded', () => {
-  setText('#chanDisp', CHANNEL_ID);
-  initMap();
-  startGPSWatch();
-  startTimers();
-  $('#pushNow').addEventListener('click', sendCombined);
+document.getElementById("startBtn").addEventListener("click", () => {
+  if (!navigator.geolocation) {
+    alert("Geolocation not supported");
+    return;
+  }
+
+  document.getElementById("status").textContent = "Starting GPS...";
+
+  gpsWatchId = navigator.geolocation.watchPosition(pos => {
+    lastLat = pos.coords.latitude;
+    lastLon = pos.coords.longitude;
+
+    if (marker) marker.setLatLng([lastLat, lastLon]);
+    else marker = L.marker([lastLat, lastLon]).addTo(map);
+    map.setView([lastLat, lastLon], 16);
+  }, err => {
+    console.error(err);
+    document.getElementById("status").textContent = "GPS error";
+  }, { enableHighAccuracy: true });
+
+  sendTimer = setInterval(sendToThingSpeak, 60000); // every 15 sec
+});
+
+document.getElementById("stopBtn").addEventListener("click", () => {
+  if (gpsWatchId) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+  }
+  if (sendTimer) {
+    clearInterval(sendTimer);
+    sendTimer = null;
+  }
+  document.getElementById("status").textContent = "Stopped";
 });
 </script>
+  
 
 </body>
 </html>
