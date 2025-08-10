@@ -6,7 +6,7 @@
 /** ========================
  *   CONFIG — SET THIS!
  *  ======================== */
-const ESP32_BASE = "http://192.168.4.1"; // <-- change to your ESP32 IP (HTTP)
+const ESP32_BASE = "http://10.229.188.187"; // <-- change to your ESP32 IP (HTTP)
 const GPS_SEND_MIN_MS = 5000;            // throttle /location posts (ms)
 const MOVEMENT_MIN_METERS = 3;           // only send if moved ~3m
 const INITIAL_ZOOM = 12;
