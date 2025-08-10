@@ -131,4 +131,77 @@ function handlePosition(pos) {
   if (latitude == null || longitude == null) return;
 
   lastCoords = { latitude, longitude, accuracy, t: Date.now() };
-  $('#latDisp').textContent = latitude.toFixed(
+  $('#latDisp').textContent = latitude.toFixed(6);
+  $('#lonDisp').textContent = longitude.toFixed(6);
+  updateMap(latitude, longitude, accuracy);
+
+  if (lastPushMs === 0) {
+    // push immediately on first fix
+    pushGps("first-fix");
+  } else {
+    // allow a movement-triggered push, but rate-limited by pushGps
+    pushGps("movement");
+  }
+}
+
+function startTest() {
+  ensureMapInit();
+
+  if (!('geolocation' in navigator)) {
+    setStatus("Geolocation not supported on this device.");
+    return;
+  }
+  if (gpsWatchId != null) {
+    setStatus("Already running.");
+    return;
+  }
+
+  // Tell ESP32 to begin its own 80s sensor pushes (fields 1–6)
+  espStart();
+
+  setStatus("Starting… allow location access.");
+  gpsWatchId = navigator.geolocation.watchPosition(
+    handlePosition,
+    err => { setStatus(`GPS error: ${err.message || err.code}`); },
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+  );
+
+  // Safety timer: ensure a GPS push at least every 80s
+  if (!safetyTimer) {
+    safetyTimer = setInterval(() => pushGps("timer"), PUSH_PERIOD);
+  }
+}
+
+function stopTest() {
+  if (gpsWatchId != null) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+  }
+  if (safetyTimer) {
+    clearInterval(safetyTimer);
+    safetyTimer = null;
+  }
+  // Tell ESP32 to stop its periodic pushes
+  espStop();
+
+  setStatus("Stopped.");
+  setEsp("idle");
+}
+
+function pushNowManual() {
+  if (!lastCoords) { setStatus("No GPS fix yet."); return; }
+  pushGps("manual");
+}
+
+// Handle page visibility (helps on mobile)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") pushGps("visibility");
+});
+
+// --- Wire UI ---
+document.addEventListener("DOMContentLoaded", () => {
+  $('#startGpsBtn')?.addEventListener('click', startTest);
+  $('#stopGpsBtn')?.addEventListener('click', stopTest);
+  $('#pushNowBtn')?.addEventListener('click', pushNowManual);
+  ensureMapInit();
+});
