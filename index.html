@@ -1,102 +1,7 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>GPS → ThingSpeak (Auto-Parity) + Merge Viewer + AQI/Speed</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:1rem;background:#f6f7fb;color:#111}
-    h1{margin:.2rem 0 .4rem}
-    #map{height:380px;border-radius:10px;margin:10px 0;background:#e9eef5}
-    .row{display:flex;flex-wrap:wrap;gap:1rem}
-    .col{flex:1 1 340px;background:#fff;border-radius:12px;box-shadow:0 8px 18px rgba(0,0,0,.08);padding:1rem}
-    .btn{padding:.6rem 1rem;border:0;border-radius:8px;cursor:pointer;font-weight:600}
-    .primary{background:#2563eb;color:#fff}
-    .ghost{background:#e5e7eb}
-    .ok{color:#16a34a}.warn{color:#f59e0b}.err{color:#ef4444}.muted{color:#6b7280}
-    table{width:100%;border-collapse:collapse;font-size:.95rem}
-    th,td{border:1px solid #e5e7eb;padding:.45rem .5rem}
-    th{background:#f3f4f6;text-align:left}
-    .controls label{display:block;font-size:.9rem;margin:.4rem 0 .2rem}
-    .controls input{width:100%;padding:.45rem .5rem;border:1px solid #d1d5db;border-radius:8px}
-    .small{font-size:.9rem}
-  </style>
-</head>
-<body>
-  <!-- Header -->
-<header>
-  <div class="header-layout">
-    <div class="logo-container">
-      <img src="images/dcu_logo.jpg" class="dcu-logo-left" alt="DCU Logo" />
-    </div>
-    <div class="header-content">
-      <h1>Car Portable Urban Air Quality Monitor</h1>
-      <p class="tagline">Live CO₂, PM, RH/Temp via ThingSpeak + GPS (opt-in)</p>
-      <p class="author">Lauren Dwyer | Student No. 38529 | MECE1</p>
-    </div>
-  </div>
-</header>
-
-  <nav class="topnav">
-  <ul>
-    <li><a href="#" onclick="showSection('sensor-overview')" class="navlink active">Sensor Overview</a></li>
-    <li><a href="#" onclick="showSection('hardware')" class="navlink">Hardware</a></li>
-    <li><a href="#" onclick="showSection('enclosure')" class="navlink">Enclosure & Mounting</a></li>
-    <li><a href="#" onclick="showSection('deployment')" class="navlink">Deployment</a></li>
-  </ul>
-</nav>
-
-  <!-- Sensor Section -->
+<!-- Sensor Section (enhanced) -->
 <section id="sensor-overview">
-  <h1>Sensor Overview</h2>
-<h2>GPS → ThingSpeak + Auto-Parity + Merged Table (AQI + Speed)</h1>
-  
-<p class="small">
-  Status: <span id="status" class="muted">Idle</span> •
-  Parity: <span id="parity" class="muted">odd (auto)</span> •
-  Align: <span id="align" class="muted">waiting</span>
-</p>
+  <h2>Sensor Overview</h2>
 
-<div class="row">
-  <div class="col">
-    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-      <button class="btn primary" id="startBtn">Start GPS Upload</button>
-      <button class="btn ghost" id="stopBtn">Stop</button>
-    </div>
-    <div id="map"></div>
-    <p class="muted small" style="margin:.2rem 0 0">
-      Writes: field7=Latitude, field8=Longitude • slot = <span id="slot">—</span>
-    </p>
-    <div class="controls" style="margin-top:.75rem">
-      <label>Channel ID</label>
-      <input id="chId" value="2960675" />
-      <label>Read API Key (blank if public)</label>
-      <input id="readKey" value="" />
-      <label class="small">Slot length (ms)</label>
-      <input id="slotLen" type="number" value="40000" />
-    </div>
-  </div>
-
-  <div class="col">
-    <h3>Fetch & Merge</h3>
-    <div class="controls">
-      <label>How many latest rows</label>
-      <input id="results" type="number" value="200" />
-      <label>Merge window (seconds)</label>
-      <input id="window" type="number" value="90" />
-    </div>
-    <p style="margin:.6rem 0">
-      <button class="btn primary" id="fetchBtn">Fetch & Merge</button>
-      <button class="btn ghost" id="dlBtn" disabled>Download CSV</button>
-    </p>
-    <div id="mergeStatus" class="muted">Waiting…</div>
-    <div style="max-height:340px;overflow:auto;margin-top:.5rem">
-      <table id="tbl"></table>
-    </div>
-  </div>
-</div>
   <label for="sensorSelect"><strong>View by Sensor:</strong></label>
   <select id="sensorSelect" onchange="handleSensorSelect(this.value)">
     <option value="none">-- Select --</option>
@@ -105,7 +10,7 @@
     <option value="mics">MiCS-4514 (NO₂)</option>
   </select>
 
-  <div class="tabs">
+  <div class="tabs" style="margin-top:.5rem">
     <button class="tablink" onclick="showTab('co2', this)">CO₂</button>
     <button class="tablink" onclick="showTab('pm25', this)">PM2.5</button>
     <button class="tablink" onclick="showTab('pm10', this)">PM10</button>
@@ -120,266 +25,287 @@
       <iframe src="https://thingspeak.com/channels/2960675/charts/4?dynamic=true&w=1000&h=400"></iframe>
     </div>
 
-    <div id="pm25" class="tabcontent tab-box">
+    <div id="pm25" class="tabcontent tab-box" style="display:none">
       <p><strong>Latest PM2.5:</strong> <span id="pm25val">Loading...</span> µg/m³</p>
       <iframe src="https://thingspeak.com/channels/2960675/charts/2?dynamic=true&w=1000&h=400"></iframe>
     </div>
 
-    <div id="pm10" class="tabcontent tab-box">
+    <div id="pm10" class="tabcontent tab-box" style="display:none">
       <p><strong>Latest PM10:</strong> <span id="pm10val">Loading...</span> µg/m³</p>
       <iframe src="https://thingspeak.com/channels/2960675/charts/3?dynamic=true&w=1000&h=400"></iframe>
     </div>
 
-    <div id="pm1" class="tabcontent tab-box">
+    <div id="pm1" class="tabcontent tab-box" style="display:none">
       <p><strong>Latest PM1.0:</strong> <span id="pm1val">Loading...</span> µg/m³</p>
       <iframe src="https://thingspeak.com/channels/2960675/charts/1?dynamic=true&w=1000&h=400"></iframe>
     </div>
 
-    <div id="temp" class="tabcontent tab-box">
+    <div id="temp" class="tabcontent tab-box" style="display:none">
       <p><strong>Latest Temp:</strong> <span id="tempval">Loading...</span> °C</p>
       <iframe src="https://thingspeak.com/channels/2960675/charts/5?dynamic=true&w=1000&h=400"></iframe>
     </div>
 
-    <div id="rh" class="tabcontent tab-box">
+    <div id="rh" class="tabcontent tab-box" style="display:none">
       <p><strong>Latest Humidity:</strong> <span id="humval">Loading...</span> %</p>
       <iframe src="https://thingspeak.com/channels/2960675/charts/6?dynamic=true&w=1000&h=400"></iframe>
     </div>
+  </div>
 
+  <!-- Merge + Analysis panel -->
+  <div class="tab-box" style="margin-top:1rem">
+    <h3 style="margin:.2rem 0 .6rem">Merged Table (GPS + Sensors) with Distance, Speed & AQI</h3>
+
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:.6rem;max-width:900px">
+      <label>Channel ID
+        <input id="mergeChId" value="2960675">
+      </label>
+      <label>Read API Key (optional)
+        <input id="mergeReadKey" value="">
+      </label>
+      <label>Latest rows
+        <input id="mergeResults" type="number" value="200">
+      </label>
+      <label>Merge window (sec)
+        <input id="mergeWindow" type="number" value="90">
+      </label>
+    </div>
+
+    <div style="margin:.6rem 0">
+      <button id="mergeFetch" class="btn primary">Fetch & Merge</button>
+      <button id="mergeDownload" class="btn" disabled>Download CSV</button>
+      <span id="mergeStatus" class="muted" style="margin-left:.75rem">Waiting…</span>
+    </div>
+
+    <div style="overflow:auto; max-height:380px">
+      <table id="mergeTable" style="width:100%;border-collapse:collapse;font-size:.95rem">
+        <!-- filled by JS -->
+      </table>
+    </div>
   </div>
 </section>
 
-<!-- Hardware Section -->
-<section id="hardware">
-  <h2>Hardware Overview</h2>
-  <p>This system uses the following components:</p>
-  <ul>
-    <li><a href="https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html" target="_blank">ESP32-DEVKITC-VE</a></li>
-    <li><a href="https://sensirion.com/media/documents/4EAF6AF8/61652C3C/Sensirion_CO2_Sensors_SCD30_Datasheet.pdf" target="_blank">SCD30: CO₂, Temperature, Humidity</a></li>
-    <li><a href="https://sensirion.com/media/documents/B7AAA101/61653FB8/Sensirion_Particulate_Matter_AppNotes_Specification_Statement.pdf" target="_blank">SPS30: PM1.0, PM2.5, PM10</a></li>
-    <li><a href="https://www.sgxsensortech.com/content/uploads/2014/08/0278_Datasheet-MiCS-4514.pdf" target="_blank">MiCS-4514: NO₂</a></li>
-    <li><a href="https://www.analog.com/media/en/technical-documentation/data-sheets/ds3231.pdf" target="_blank">DS3231 RTC</a></li>
-    <li>MicroSD Card Module</li>
-    <li><a href="https://www.handsontec.com/dataspecs/I2C_2004_LCD.pdf" target="_blank">LCD Display</a></li>
-    <li><a href="https://www.aliexpress.com/item/1005007835418978.html" target="_blank">Li-Ion Battery Pack</a></li>
-  </ul>
-</section>
-
-<section id="enclosure">
-  <h2>Enclosure & Mounting</h2>
-  <p>Weatherproof enclosure with airflow slots; roof-mounted using suction + straps.</p>
-</section>
-
-<section id="deployment">
-  <h2>Deployment</h2>
-  <p>Uploaded every 30 seconds to <a href="https://thingspeak.mathworks.com/channels/2960675" target="_blank">ThingSpeak</a>, Blynk, and microSD during July/August 2025 trials.</p>
-</section>
-  
 <script>
-const THINGSPEAK_WRITE_KEY = "9YXHS30JF6Z9YHXI";
-const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update.json";
+/* ===== Simple tab / dropdown helpers the section expects ===== */
+function handleSensorSelect(v){
+  const map = { scd30: 'co2', sps30: 'pm25', mics: 'pm10' };
+  const tab = map[v] || 'co2';
+  showTab(tab);
+}
+function showTab(id){
+  document.querySelectorAll('#sensorTabs .tabcontent').forEach(el => el.style.display='none');
+  const t = document.getElementById(id);
+  if (t) t.style.display = '';
+}
 
-const $ = s => document.querySelector(s);
-function setStatus(msg, cls='muted'){ const el=$("#status"); el.className=cls; el.textContent=msg; }
-function setParityLabel(p){ $("#parity").textContent = p===1 ? "odd" : "even"; }
-function setAlign(msg, cls='muted'){ const el=$("#align"); el.className=cls; el.textContent=msg; }
+/* ===== Pull latest values just to fill the "Latest ..." spans ===== */
+(async function fillLatest() {
+  try {
+    const r = await fetch('https://api.thingspeak.com/channels/2960675/feeds.json?results=1', {cache:'no-store'});
+    if (!r.ok) return;
+    const j = await r.json();
+    const f = (j.feeds && j.feeds[0]) || {};
+    const n = x => (x==null||x==='') ? '—' : (+x).toFixed(2);
+    document.getElementById('co2val').textContent = f.field4 ? (+f.field4).toFixed(0) : '—';
+    document.getElementById('pm25val').textContent = n(f.field2);
+    document.getElementById('pm10val').textContent = n(f.field3);
+    document.getElementById('pm1val').textContent  = n(f.field1);
+    document.getElementById('tempval').textContent = n(f.field5);
+    document.getElementById('humval').textContent  = n(f.field6);
+  } catch {}
+})();
 
-let map = L.map('map').setView([53.35, -6.26], 12);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
-let marker;
+/* ===== Merge + analysis ===== */
+const mergeTable = document.getElementById('mergeTable');
+const mergeStatus = document.getElementById('mergeStatus');
+const dlBtn = document.getElementById('mergeDownload');
 
-let SLOT_MS = parseInt($("#slotLen").value,10) || 40000;
-$("#slotLen").addEventListener('change', ()=>{ SLOT_MS = parseInt($("#slotLen").value,10) || 40000; });
+let lastMerged = [];
+const COLS = [
+  'created_at','pm1','pm25','pm10','co2','temp','hum',
+  'lat','lon','dt_s',          // pairing lag
+  'step_dt_s','step_dist_m','speed_kmh', // between consecutive merged rows
+  'aqi'
+];
 
-let gpsWatchId = null;
-let lastLat = null, lastLon = null;
-let slotTimer = null;
-let lastSlotSent = -1;
-let gpsParity = 1;
-let autoAligned = false;
-let mismatchCount = 0;
-const MIS_MATCH_TO_FLIP = 2;
-const currentSlot = () => Math.floor(Date.now() / SLOT_MS);
+function status(msg, cls='muted'){ mergeStatus.className = cls; mergeStatus.textContent = msg; }
 
-async function readChannelFeeds(channelId, readKey, results=40) {
-  const base = `https://api.thingspeak.com/channels/${channelId}/feeds.json`;
-  const u = new URL(base);
+async function readChannelFeeds(channelId, readKey, results=200){
+  const u = new URL(`https://api.thingspeak.com/channels/${channelId}/feeds.json`);
   if (readKey) u.searchParams.set('api_key', readKey);
   u.searchParams.set('results', results);
-  const r = await fetch(u, {cache:'no-store'});
+  const r = await fetch(u.toString(), {cache:'no-store'});
   if (!r.ok) throw new Error(`TS read HTTP ${r.status}`);
   const j = await r.json();
   return j.feeds.map(f => ({
     created_at: f.created_at,
     ts: new Date(f.created_at).getTime(),
-    pm1: parseFloat(f.field1) || null,
-    pm25: parseFloat(f.field2) || null,
-    pm10: parseFloat(f.field3) || null,
-    co2: parseFloat(f.field4) || null,
-    temp: parseFloat(f.field5) || null,
-    hum: parseFloat(f.field6) || null,
-    lat: parseFloat(f.field7),
-    lon: parseFloat(f.field8)
+    pm1:   f.field1 ? parseFloat(f.field1) : null,
+    pm25:  f.field2 ? parseFloat(f.field2) : null,
+    pm10:  f.field3 ? parseFloat(f.field3) : null,
+    co2:   f.field4 ? parseFloat(f.field4) : null,
+    temp:  f.field5 ? parseFloat(f.field5) : null,
+    hum:   f.field6 ? parseFloat(f.field6) : null,
+    lat:   (f.field7!=null && f.field7!=='') ? parseFloat(f.field7) : NaN,
+    lon:   (f.field8!=null && f.field8!=='') ? parseFloat(f.field8) : NaN
   }));
 }
+const isSensorRow = r => [r.pm1,r.pm25,r.pm10,r.co2,r.temp,r.hum]
+  .some(v => typeof v === 'number' && !Number.isNaN(v));
+const isGpsRow = r => Number.isFinite(r.lat) && Number.isFinite(r.lon);
 
-function isSensorRow(r){ return [r.pm1,r.pm25,r.pm10,r.co2,r.temp,r.hum].some(v => typeof v === 'number' && !Number.isNaN(v)); }
-function isGpsRow(r){ return Number.isFinite(r.lat) && Number.isFinite(r.lon); }
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2-lat1) * Math.PI/180;
-  const dLon = (lon2-lon1) * Math.PI/180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); // km
+// Haversine (meters)
+function haversineMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = x => x * Math.PI/180;
+  const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1))*Math.cos(toRad(lat2)) *
+            Math.sin(dLon/2)**2;
+  const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R*c;
 }
 
-function calcAQIpm25(pm) {
+// US EPA-style AQI breakpoints (PM2.5 only here), returns 0-500 scale
+function aqiFromPM25(pm){
+  if (!Number.isFinite(pm)) return '';
   const bp = [
-    {cLow:0.0, cHigh:12.0, aqiLow:0, aqiHigh:50},
-    {cLow:12.1, cHigh:35.4, aqiLow:51, aqiHigh:100},
-    {cLow:35.5, cHigh:55.4, aqiLow:101, aqiHigh:150},
-    {cLow:55.5, cHigh:150.4, aqiLow:151, aqiHigh:200},
-    {cLow:150.5, cHigh:250.4, aqiLow:201, aqiHigh:300},
-    {cLow:250.5, cHigh:500.4, aqiLow:301, aqiHigh:500}
+    {hi:12.0,  Ih:50,  Il:0,   Bh:12.0,  Bl:0.0},
+    {hi:35.4,  Ih:100, Il:51,  Bh:35.4,  Bl:12.1},
+    {hi:55.4,  Ih:150, Il:101, Bh:55.4,  Bl:35.5},
+    {hi:150.4, Ih:200, Il:151, Bh:150.4, Bl:55.5},
+    {hi:250.4, Ih:300, Il:201, Bh:250.4, Bl:150.5},
+    {hi:350.4, Ih:400, Il:301, Bh:350.4, Bl:250.5},
+    {hi:500.4, Ih:500, Il:401, Bh:500.4, Bl:350.5}
   ];
-  for (let i of bp) {
-    if (pm >= i.cLow && pm <= i.cHigh) {
-      return Math.round(((i.aqiHigh - i.aqiLow)/(i.cHigh - i.cLow)) * (pm - i.cLow) + i.aqiLow);
+  for (const b of bp){
+    if (pm <= b.hi){
+      return Math.round((b.Ih - b.Il)/(b.Bh - b.Bl) * (pm - b.Bl) + b.Il);
     }
   }
-  return null;
+  return 500;
+}
+// CO₂ comfort band (not an official AQI): 0–100 scaled where 100 is fresh air (~420 ppm)
+function co2Score(co2){
+  if (!Number.isFinite(co2)) return '';
+  if (co2 <= 420) return 100;
+  if (co2 >= 2000) return 0;
+  // linear 420→2000 maps 100→0
+  return Math.max(0, Math.round(100*(2000-co2)/(2000-420)));
+}
+// Combined index: PM2.5 AQI governs, CO₂ nudges by ± up to 20 points
+function combinedAqi(pm25, co2){
+  const aqi = aqiFromPM25(pm25);
+  if (aqi === '') return '';
+  const c = co2Score(co2);
+  if (c === '') return aqi;
+  // If CO₂ is poor (low score), bump AQI worse; if good, nudge better slightly
+  const adjust = Math.round((50 - c/2) * 0.4); // range about -20..+20
+  return Math.max(0, Math.min(500, aqi + adjust));
 }
 
+// Merge by nearest GPS within window; keep ONLY rows with a GPS match
 function mergeSameChannel(rows, windowSec){
   const W = windowSec * 1000;
   const sensors = rows.filter(isSensorRow);
   const gps = rows.filter(isGpsRow);
-
   const out = [];
-  let prevLat = null, prevLon = null, prevTime = null;
-
-  for (const s of sensors) {
-    let best = null, bestDt = Infinity;
-    for (const g of gps) {
+  for (const s of sensors){
+    let best=null, bestDt=Infinity;
+    for (const g of gps){
       const dt = Math.abs(s.ts - g.ts);
-      if (dt < bestDt && dt <= W) { best = g; bestDt = dt; }
+      if (dt < bestDt && dt <= W){ best=g; bestDt=dt; }
     }
-    if (best && Number.isFinite(best.lat) && Number.isFinite(best.lon)) {
-      let speed = null;
-      if (prevLat != null && prevLon != null && prevTime != null) {
-        const distKm = haversine(prevLat, prevLon, best.lat, best.lon);
-        const dtHr = (s.ts - prevTime) / 3600000;
-        if (dtHr > 0) speed = +(distKm / dtHr).toFixed(1);
-      }
-      const aqi = (() => {
-        let base = calcAQIpm25(s.pm25);
-        if (s.co2 > 1000) base += 5;
-        if (s.co2 > 2000) base += 15;
-        return base;
-      })();
+    if (best){
       out.push({
         created_at: s.created_at,
+        ts: s.ts,
         pm1: s.pm1 ?? '', pm25: s.pm25 ?? '', pm10: s.pm10 ?? '',
         co2: s.co2 ?? '', temp: s.temp ?? '', hum: s.hum ?? '',
         lat: best.lat, lon: best.lon,
-        dt_s: Math.round(bestDt/1000),
-        speed_kmh: speed ?? '',
-        aqi: aqi ?? ''
+        dt_s: Math.round(bestDt/1000)
       });
-      prevLat = best.lat; prevLon = best.lon; prevTime = s.ts;
     }
+  }
+  // sort by time ascending
+  out.sort((a,b)=>a.ts-b.ts);
+
+  // add step distance/time/speed and AQI
+  for (let i=0;i<out.length;i++){
+    const r = out[i];
+    const prev = out[i-1];
+    if (prev){
+      const step_dt_s = Math.max(1, Math.round((r.ts - prev.ts)/1000));
+      const dist_m = haversineMeters(prev.lat, prev.lon, r.lat, r.lon);
+      r.step_dt_s = step_dt_s;
+      r.step_dist_m = Math.round(dist_m);
+      r.speed_kmh = +( (dist_m/1000) / (step_dt_s/3600) ).toFixed(1);
+    } else {
+      r.step_dt_s = '';
+      r.step_dist_m = '';
+      r.speed_kmh = '';
+    }
+    r.aqi = combinedAqi(r.pm25, r.co2);
   }
   return out;
 }
 
 function renderTable(rows){
-  if (!rows.length) { $("#tbl").innerHTML = '<tr><td>No merged rows</td></tr>'; return; }
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','speed_kmh','aqi'];
-  $("#tbl").innerHTML =
-    '<thead><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead>' +
-    '<tbody>' + rows.map(r => '<tr>' +
-      cols.map(c => `<td>${(r[c] ?? '')}</td>`).join('') +
-    '</tr>').join('') + '</tbody>';
+  if (!rows.length){
+    mergeTable.innerHTML = '<tr><td>No merged rows with GPS in window.</td></tr>';
+    return;
+  }
+  const thead = '<thead><tr>' + COLS.map(c=>`<th style="border:1px solid #e5e7eb;padding:.45rem .5rem;background:#f3f4f6">${c}</th>`).join('') + '</tr></thead>';
+  const tbody = '<tbody>' + rows.map(r => {
+    return '<tr>' + COLS.map(c => `<td style="border:1px solid #e5e7eb;padding:.45rem .5rem">${r[c] ?? ''}</td>`).join('') + '</tr>';
+  }).join('') + '</tbody>';
+  mergeTable.innerHTML = thead + tbody;
+
+  const dts = rows.map(r=>r.dt_s).filter(v=>typeof v==='number');
+  const steps = rows.map(r=>r.step_dt_s).filter(v=>typeof v==='number');
+  if (dts.length){
+    const avg = Math.round(dts.reduce((a,b)=>a+b,0)/dts.length);
+    const min = Math.min(...dts), max = Math.max(...dts);
+    status(`Done (${rows.length}). Δt(pair) [min=${min}s, avg=${avg}s, max=${max}s]`, 'ok');
+  } else {
+    status(`Done (${rows.length}).`, 'ok');
+  }
+  if (steps.length){
+    const sAvg = Math.round(steps.reduce((a,b)=>a+b,0)/steps.length);
+    status(mergeStatus.textContent + ` • Δt(step)≈${sAvg}s`, 'ok');
+  }
 }
 
-async function postToThingSpeak(lat, lon){
+function toCSV(rows){
+  const head = COLS.join(',');
+  const lines = rows.map(r => COLS.map(c => String(r[c] ?? '')).join(','));
+  return [head, ...lines].join('\n');
+}
+
+document.getElementById('mergeFetch').addEventListener('click', async () => {
+  const chId = document.getElementById('mergeChId').value.trim();
+  const readKey = document.getElementById('mergeReadKey').value.trim();
+  const results = Math.max(10, parseInt(document.getElementById('mergeResults').value || '200', 10));
+  const windowSec = Math.max(5, parseInt(document.getElementById('mergeWindow').value || '90', 10));
+
   try {
-    const body = new URLSearchParams({api_key: THINGSPEAK_WRITE_KEY, field7: lat, field8: lon});
-    const r = await fetch(THINGSPEAK_UPDATE_URL, {method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body});
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const entryId = await r.json();
-    if (+entryId === 0) { setStatus('TS rejected GPS', 'err'); return 0; }
-    setStatus(`GPS uploaded: ${lat.toFixed(6)}, ${lon.toFixed(6)}`, 'ok');
-    return +entryId;
-  } catch(e){ setStatus(`Upload error: ${e.message}`, 'err'); return 0; }
-}
-
-async function trySlotUpload(){
-  if (lastLat == null || lastLon == null) return;
-  const slot = currentSlot();
-  $("#slot").textContent = String(slot);
-  if (slot === lastSlotSent) return;
-  if ((slot % 2) !== gpsParity) return;
-  await new Promise(res => setTimeout(res, 200));
-  const id = await postToThingSpeak(lastLat, lastLon);
-  if (id > 0) lastSlotSent = slot;
-}
-
-$("#startBtn").addEventListener('click', () => {
-  if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
-  if (gpsWatchId) { setStatus('Already running', 'warn'); return; }
-  gpsWatchId = navigator.geolocation.watchPosition(pos => {
-    lastLat = pos.coords.latitude;
-    lastLon = pos.coords.longitude;
-    if (marker) marker.setLatLng([lastLat, lastLon]);
-    else marker = L.marker([lastLat, lastLon]).addTo(map);
-    map.setView([lastLat, lastLon], 15);
-    trySlotUpload();
-    if (!slotTimer) slotTimer = setInterval(trySlotUpload, 1000);
-  }, err => setStatus(`GPS error: ${err.message}`, 'err'), { enableHighAccuracy:true });
-});
-
-$("#stopBtn").addEventListener('click', () => {
-  if (gpsWatchId) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
-  if (slotTimer) { clearInterval(slotTimer); slotTimer = null; }
-  setStatus('Stopped', 'muted');
-});
-
-let lastMerged = []; // store last merge result
-let lastCols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','speed_kmh','aqi'];
-
-$("#fetchBtn").addEventListener('click', async () => {
-  const chId = $("#chId").value.trim();
-  const readKey = $("#readKey").value.trim();
-  const results = parseInt($("#results").value || '200', 10);
-  const windowSec = parseInt($("#window").value || '90', 10);
-  try {
-    $("#mergeStatus").textContent = 'Fetching…';
+    status('Fetching…');
     const rows = await readChannelFeeds(chId, readKey, results);
-    $("#mergeStatus").textContent = 'Merging…';
+    status('Merging…');
     lastMerged = mergeSameChannel(rows, windowSec);
     renderTable(lastMerged);
-    $("#dlBtn").disabled = lastMerged.length === 0;
-    $("#mergeStatus").textContent = `Merged ${lastMerged.length} rows`;
-  } catch (e) {
-    $("#mergeStatus").textContent = `Error: ${e.message}`;
+    dlBtn.disabled = lastMerged.length === 0;
+  } catch(e){
+    status(`Error: ${e.message}`, 'err');
   }
 });
 
-$("#dlBtn").addEventListener('click', () => {
+dlBtn.addEventListener('click', () => {
   if (!lastMerged.length) return;
-  const lines = [lastCols.join(',')].concat(lastMerged.map(r => lastCols.map(c => r[c]).join(',')));
-  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const blob = new Blob([toCSV(lastMerged)], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = 'merged_thingspeak.csv';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  a.href = url; a.download = 'merged_with_distance_speed_aqi.csv';
+  document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 });
-
 </script>
-</body>
-</html>
