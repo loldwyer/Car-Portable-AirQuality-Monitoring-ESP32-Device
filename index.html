@@ -498,8 +498,10 @@ function mergeSameChannel(rows, windowSec){
 
   const out = [];
   let prevLat = null, prevLon = null, prevTime = null;
+  let totalKm = 0;
 
   for (const s of sensors) {
+    // find closest GPS within window
     let best = null, bestDt = Infinity;
     for (const g of gps) {
       const dt = Math.abs(s.ts - g.ts);
@@ -507,26 +509,38 @@ function mergeSameChannel(rows, windowSec){
     }
     if (best && Number.isFinite(best.lat) && Number.isFinite(best.lon)) {
       let speed = null;
+      let segKm = null;
+
       if (prevLat != null && prevLon != null && prevTime != null) {
-        const distKm = haversine(prevLat, prevLon, best.lat, best.lon);
+        segKm = haversine(prevLat, prevLon, best.lat, best.lon);
+
+        // Optional: ignore tiny jitter when stopped (e.g., <10 m)
+        // if (segKm < 0.01) segKm = 0;
+
+        totalKm += segKm;
         const dtHr = (s.ts - prevTime) / 3600000;
-        if (dtHr > 0) speed = +(distKm / dtHr).toFixed(1);
+        if (dtHr > 0) speed = +((segKm / dtHr).toFixed(1));
       }
+
       const aqi = (() => {
         let base = calcAQIpm25(s.pm25);
         if (s.co2 > 1000) base += 5;
         if (s.co2 > 2000) base += 15;
         return base;
       })();
+
       out.push({
         created_at: s.created_at,
         pm1: s.pm1 ?? '', pm25: s.pm25 ?? '', pm10: s.pm10 ?? '',
         co2: s.co2 ?? '', temp: s.temp ?? '', hum: s.hum ?? '',
         lat: best.lat, lon: best.lon,
         dt_s: Math.round(bestDt/1000),
-        speed_kmh: speed ?? '',
+        speed_kmh: (speed ?? ''),
+        seg_km: (segKm != null ? +segKm.toFixed(3) : ''),   // distance since previous merged row
+        total_km: +totalKm.toFixed(3),                      // cumulative distance
         aqi: aqi ?? ''
       });
+
       prevLat = best.lat; prevLon = best.lon; prevTime = s.ts;
     }
   }
@@ -535,13 +549,15 @@ function mergeSameChannel(rows, windowSec){
 
 function renderTable(rows){
   if (!rows.length) { $("#tbl").innerHTML = '<tr><td>No merged rows</td></tr>'; return; }
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','speed_kmh','aqi'];
+  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum',
+                'lat','lon','dt_s','speed_kmh','seg_km','total_km','aqi'];
   $("#tbl").innerHTML =
     '<thead><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead>' +
     '<tbody>' + rows.map(r => '<tr>' +
       cols.map(c => `<td>${(r[c] ?? '')}</td>`).join('') +
     '</tr>').join('') + '</tbody>';
 }
+
 
 async function postToThingSpeak(lat, lon){
   try {
