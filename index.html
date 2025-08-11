@@ -2,13 +2,13 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Odd-slot GPS → ThingSpeak + Merge Viewer</title>
+  <title>GPS → ThingSpeak (Auto-Parity) + Merge Viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:1rem;background:#f6f7fb;color:#111}
-    h1{margin:.2rem 0 .6rem}
+    h1{margin:.2rem 0 .4rem}
     #map{height:380px;border-radius:10px;margin:10px 0;background:#e9eef5}
     .row{display:flex;flex-wrap:wrap;gap:1rem}
     .col{flex:1 1 340px;background:#fff;border-radius:12px;box-shadow:0 8px 18px rgba(0,0,0,.08);padding:1rem}
@@ -21,39 +21,49 @@
     th{background:#f3f4f6;text-align:left}
     .controls label{display:block;font-size:.9rem;margin:.4rem 0 .2rem}
     .controls input{width:100%;padding:.45rem .5rem;border:1px solid #d1d5db;border-radius:8px}
-    .pill{display:inline-block;padding:.2rem .55rem;border-radius:999px;background:#eef; font-size:.8rem; margin-left:.5rem}
+    .small{font-size:.9rem}
   </style>
 </head>
 <body>
 
-<h1>GPS → ThingSpeak (odd-slot) <span id="parityPill" class="pill">odd</span></h1>
-<p>Status: <span id="status" class="muted">Idle</span></p>
+<h1>GPS → ThingSpeak (phone 4G) + Auto-Parity + Merged Table</h1>
+<p class="small">
+  Status: <span id="status" class="muted">Idle</span> •
+  Parity: <span id="parity" class="muted">odd (auto)</span> •
+  Align: <span id="align" class="muted">waiting</span>
+</p>
 
 <div class="row">
   <!-- LEFT: GPS uploader + map -->
   <div class="col">
-    <button class="btn primary" id="startBtn">Start GPS Upload</button>
-    <button class="btn ghost" id="stopBtn">Stop</button>
-    <button class="btn ghost" id="flipBtn" title="Switch odd/even slot posting">Flip parity</button>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn primary" id="startBtn">Start GPS Upload</button>
+      <button class="btn ghost" id="stopBtn">Stop</button>
+    </div>
+
     <div id="map"></div>
-    <p class="muted" style="margin:.2rem 0 0">
-      Writes: field7 = Latitude, field8 = Longitude (once per 40-s slot, only on selected parity)
+    <p class="muted small" style="margin:.2rem 0 0">
+      Writes: <b>field7</b>=Latitude, <b>field8</b>=Longitude • slot = <span id="slot">—</span>
     </p>
-    <p class="muted" id="nextSlotInfo"></p>
+
+    <div class="controls" style="margin-top:.75rem">
+      <label>Channel ID (for auto-parity + merge)</label>
+      <input id="chId" value="2960675" />
+      <label>Read API Key (blank if public)</label>
+      <input id="readKey" value="" />
+      <label class="small">Slot length (ms) — keep at 40000 to match ESP32</label>
+      <input id="slotLen" type="number" value="40000" />
+    </div>
   </div>
 
   <!-- RIGHT: Merge viewer -->
   <div class="col">
-    <h3 style="margin:.2rem 0 .6rem">Fetch & Merge from ThingSpeak (same channel)</h3>
+    <h3 style="margin:.2rem 0 .6rem">Fetch & Merge (same channel)</h3>
     <div class="controls">
-      <label>Channel ID</label>
-      <input id="chId" value="2960675" />
-      <label>Read API Key (leave blank if public)</label>
-      <input id="readKey" value="" />
       <label>How many latest rows</label>
       <input id="results" type="number" value="200" />
       <label>Merge window (seconds)</label>
-      <input id="window" type="number" value="45" />
+      <input id="window" type="number" value="90" />
     </div>
     <p style="margin:.6rem 0">
       <button class="btn primary" id="fetchBtn">Fetch & Merge</button>
@@ -68,20 +78,14 @@
 
 <script>
 /* ==== CONFIG (GPS writer) ==== */
-const THINGSPEAK_WRITE_KEY = "9YXHS30JF6Z9YHXI";
+const THINGSPEAK_WRITE_KEY = "9YXHS30JF6Z9YHXI";      // your WRITE key
 const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update.json";
 
-/* ==== Slotting (pair with ESP’s 40 s cadence) ==== */
-const SLOT_MS = 40000;
-// Default to posting on ODD slots; flip if you see collisions/misses.
-let desiredParity = 1; // 1 = odd, 0 = even
-const parityPill = document.getElementById('parityPill');
-function parityName(p){ return p ? 'odd' : 'even'; }
-function currentSlot(){ return Math.floor(Date.now() / SLOT_MS); }
-function msToNextSlot(){
-  const ms = SLOT_MS - (Date.now() % SLOT_MS);
-  return ms === SLOT_MS ? 0 : ms;
-}
+/* ==== UI helpers ==== */
+const $ = s => document.querySelector(s);
+function setStatus(msg, cls='muted'){ const el=$("#status"); el.className=cls; el.textContent=msg; }
+function setParityLabel(p){ $("#parity").textContent = p===1 ? "odd" : "even"; }
+function setAlign(msg, cls='muted'){ const el=$("#align"); el.className=cls; el.textContent=msg; }
 
 /* ==== MAP ==== */
 let map = L.map('map').setView([53.35, -6.26], 12);
@@ -90,25 +94,100 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 let marker;
 
-/* ==== GPS writer (one post per chosen slot) ==== */
+/* ==== Slotting + GPS state ==== */
+let SLOT_MS = parseInt($("#slotLen").value,10) || 40000; // must match ESP32
+$("#slotLen").addEventListener('change', ()=>{ SLOT_MS = parseInt($("#slotLen").value,10) || 40000; });
+
 let gpsWatchId = null;
 let lastLat = null, lastLon = null;
 let slotTimer = null;
 let lastSlotSent = -1;
-let backoffUntil = 0;
 
-function setStatus(msg, cls = 'muted'){
-  const el = document.getElementById('status');
-  el.className = cls; el.textContent = msg;
-}
-function updateNextSlotInfo(){
-  const ms = msToNextSlot();
-  const s = Math.ceil(ms/1000);
-  document.getElementById('nextSlotInfo').textContent =
-    `Next slot in ~${s}s — will post on ${parityName(desiredParity)} slots only.`;
-}
-setInterval(updateNextSlotInfo, 1000);
+// Start with ODD (1) to avoid ESP32 EVEN collisions; auto-align will flip if needed
+let gpsParity = 1;                  // 0 = even slots, 1 = odd slots
+let autoAligned = false;
+let mismatchCount = 0;              // hysteresis
+const MIS_MATCH_TO_FLIP = 2;
 
+const currentSlot = () => Math.floor(Date.now() / SLOT_MS);
+
+/* ==== ThingSpeak read helpers (for auto-parity + merge) ==== */
+async function readChannelFeeds(channelId, readKey, results=40) {
+  const base = `https://api.thingspeak.com/channels/${channelId}/feeds.json`;
+  const u = new URL(base);
+  if (readKey) u.searchParams.set('api_key', readKey);
+  u.searchParams.set('results', results);
+  const r = await fetch(u.toString(), {cache:'no-store'});
+  if (!r.ok) throw new Error(`TS read HTTP ${r.status}`);
+  const j = await r.json();
+  return j.feeds.map(f => ({
+    created_at: f.created_at,
+    ts: new Date(f.created_at).getTime(),
+    pm1:   f.field1 ? parseFloat(f.field1) : null,
+    pm25:  f.field2 ? parseFloat(f.field2) : null,
+    pm10:  f.field3 ? parseFloat(f.field3) : null,
+    co2:   f.field4 ? parseFloat(f.field4) : null,
+    temp:  f.field5 ? parseFloat(f.field5) : null,
+    hum:   f.field6 ? parseFloat(f.field6) : null,
+    lat:   f.field7 !== undefined && f.field7 !== null ? parseFloat(f.field7) : NaN,
+    lon:   f.field8 !== undefined && f.field8 !== null ? parseFloat(f.field8) : NaN
+  }));
+}
+
+function isSensorRow(r){
+  return [r.pm1,r.pm25,r.pm10,r.co2,r.temp,r.hum].some(v => typeof v === 'number' && !Number.isNaN(v));
+}
+function isGpsRow(r){
+  return Number.isFinite(r.lat) && Number.isFinite(r.lon);
+}
+
+/* ==== Auto-parity alignment ==== */
+async function autoAlignParity(latJustSent, lonJustSent){
+  if (autoAligned) return; // do once per session unless forced
+  const chId = $("#chId").value.trim();
+  const readKey = $("#readKey").value.trim();
+  if (!chId) { setAlign("no channel ID", 'warn'); return; }
+
+  try {
+    setAlign('checking…');
+    const rows = await readChannelFeeds(chId, readKey, 20);
+    // Latest sensor row:
+    const sensors = rows.filter(isSensorRow).sort((a,b)=>b.ts-a.ts);
+    const gpsRows = rows.filter(isGpsRow).sort((a,b)=>b.ts-a.ts);
+    if (!sensors.length || !gpsRows.length){ setAlign('not enough rows yet', 'warn'); return; }
+
+    const latestSensor = sensors[0];
+    const latestGps = gpsRows[0];
+
+    // If the latest GPS row is not ours (e.g., older), still fine — we only need dt
+    const dt = Math.abs(latestSensor.ts - latestGps.ts)/1000; // seconds
+
+    // Heuristics:
+    // - dt < 5s  → likely same slot / collision → flip
+    // - dt > 30s → likely wrong phase (expect ~15–20s offset) → flip
+    // else within 8–25s → looks aligned
+    let shouldFlip = (dt < 5) || (dt > 30);
+    if (shouldFlip) {
+      mismatchCount++;
+      setAlign(`misaligned (Δt=${Math.round(dt)}s) ${mismatchCount}/${MIS_MATCH_TO_FLIP}`, 'warn');
+      if (mismatchCount >= MIS_MATCH_TO_FLIP) {
+        gpsParity = (gpsParity ^ 1);     // flip 0<->1
+        setParityLabel(gpsParity);
+        setAlign('flipped parity ✔', 'ok');
+        autoAligned = true;              // lock after first decisive flip
+        mismatchCount = 0;
+      }
+    } else {
+      setAlign(`aligned (Δt=${Math.round(dt)}s)`, 'ok');
+      autoAligned = true;                // good → lock
+      mismatchCount = 0;
+    }
+  } catch(e){
+    setAlign(`align error: ${e.message}`, 'err');
+  }
+}
+
+/* ==== GPS → ThingSpeak upload ==== */
 async function postToThingSpeak(lat, lon){
   try {
     const body = new URLSearchParams({
@@ -122,51 +201,46 @@ async function postToThingSpeak(lat, lon){
       body: body.toString()
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const entryId = await r.json();   // returns entry id or 0
+    const entryId = await r.json();   // returns id or 0
     if (+entryId === 0) {
-      // Light backoff: skip the next 1 slot to avoid hammering when TS is unhappy
-      backoffUntil = Date.now() + SLOT_MS * 1;
-      setStatus('TS rejected GPS (rate/key?). Pausing 1 slot.', 'err');
-      return false;
+      setStatus('TS rejected GPS (rate/key?)', 'err');
+      return 0;
     }
     setStatus(`GPS uploaded: ${lat.toFixed(6)}, ${lon.toFixed(6)} (entry ${entryId})`, 'ok');
-    return true;
+    return +entryId;
   } catch(e){
-    // Network or CORS transient — back off 1 slot too
-    backoffUntil = Date.now() + SLOT_MS * 1;
-    setStatus(`Upload error: ${e.message}. Pausing 1 slot.`, 'err');
-    return false;
+    setStatus(`Upload error: ${e.message}`, 'err');
+    return 0;
   }
 }
 
 async function trySlotUpload(){
   if (lastLat == null || lastLon == null) return;
-  if (Date.now() < backoffUntil) return;
-
   const slot = currentSlot();
-  if ((slot % 2) !== desiredParity) return;  // wrong parity
-  if (slot === lastSlotSent) return;         // already sent this slot
+  $("#slot").textContent = String(slot);
+  if (slot === lastSlotSent) return;       // already sent this slot
+  if ((slot % 2) !== gpsParity) return;    // not our phase
 
-  // Small mid-slot delay (aim ~+2 s) to avoid exact boundary collisions.
-  const boundarySkewMs = 2000;
-  const msRem = msToNextSlot();
-  if (msRem > (SLOT_MS - boundarySkewMs)) return;
+  // tiny jitter so both sides don't hit the exact boundary
+  const jitter = 200 + (slot % 5) * 60;
+  await new Promise(res => setTimeout(res, jitter));
 
-  const ok = await postToThingSpeak(lastLat, lastLon);
-  if (ok) lastSlotSent = slot;
+  const id = await postToThingSpeak(lastLat, lastLon);
+  if (id > 0) {
+    lastSlotSent = slot;
+    // run auto-parity once, right after the first successful GPS post
+    autoAlignParity(lastLat, lastLon);
+  }
 }
 
-document.getElementById('flipBtn').addEventListener('click', () => {
-  desiredParity = desiredParity ? 0 : 1;
-  parityPill.textContent = parityName(desiredParity);
-  setStatus(`Now targeting ${parityName(desiredParity)} slots`, 'warn');
-});
-
+/* ==== Start/Stop ==== */
 document.getElementById('startBtn').addEventListener('click', () => {
   if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
   if (gpsWatchId) { setStatus('Already running', 'warn'); return; }
 
   setStatus('Starting GPS…');
+  setParityLabel(gpsParity);
+
   gpsWatchId = navigator.geolocation.watchPosition(pos => {
     lastLat = pos.coords.latitude;
     lastLon = pos.coords.longitude;
@@ -175,10 +249,10 @@ document.getElementById('startBtn').addEventListener('click', () => {
     else marker = L.marker([lastLat, lastLon]).addTo(map);
     map.setView([lastLat, lastLon], Math.max(map.getZoom(), 15));
 
-    // On first fix, attempt the slot upload logic
+    // first fix: attempt immediate slot upload
     trySlotUpload();
 
-    // Check every 1 s if we’re in our target slot and haven’t sent yet
+    // Start 1 Hz slot checker
     if (!slotTimer) slotTimer = setInterval(trySlotUpload, 1000);
   }, err => {
     setStatus(`GPS error: ${err.message}`, 'err');
@@ -189,9 +263,11 @@ document.getElementById('stopBtn').addEventListener('click', () => {
   if (gpsWatchId) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
   if (slotTimer) { clearInterval(slotTimer); slotTimer = null; }
   setStatus('Stopped', 'muted');
+  setAlign('waiting', 'muted');
+  autoAligned = false; mismatchCount = 0;
 });
 
-/* ==== Fetch + merge viewer (same channel) ==== */
+/* ==== Merge viewer (same channel) ==== */
 const tbl = document.getElementById('tbl');
 const mergeStatus = document.getElementById('mergeStatus');
 const dlBtn = document.getElementById('dlBtn');
@@ -199,32 +275,10 @@ let lastMerged = [];
 
 function setMergeStatus(msg, cls='muted'){ mergeStatus.className = cls; mergeStatus.textContent = msg; }
 
-async function readChannelFeeds(channelId, readKey, results) {
-  const base = `https://api.thingspeak.com/channels/${channelId}/feeds.json`;
-  const u = new URL(base);
-  if (readKey) u.searchParams.set('api_key', readKey);
-  u.searchParams.set('results', results);
-  const r = await fetch(u.toString(), {cache:'no-store'});
-  if (!r.ok) throw new Error(`TS read HTTP ${r.status}`);
-  const j = await r.json();
-  return j.feeds.map(f => ({
-    created_at: f.created_at,
-    ts: new Date(f.created_at).getTime(),
-    pm1:   parseFloat(f.field1) || 0,
-    pm25:  parseFloat(f.field2) || 0,
-    pm10:  parseFloat(f.field3) || 0,
-    co2:   parseFloat(f.field4) || 0,
-    temp:  parseFloat(f.field5) || 0,
-    hum:   parseFloat(f.field6) || 0,
-    lat:   (f.field7 !== undefined && f.field7 !== null && f.field7 !== "") ? parseFloat(f.field7) : NaN,
-    lon:   (f.field8 !== undefined && f.field8 !== null && f.field8 !== "") ? parseFloat(f.field8) : NaN
-  }));
-}
-
 function mergeSameChannel(rows, windowSec){
   const W = windowSec * 1000;
-  const sensors = rows.filter(r => (r.pm1||r.pm25||r.pm10||r.co2||r.temp||r.hum));
-  const gps = rows.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon));
+  const sensors = rows.filter(isSensorRow);
+  const gps = rows.filter(isGpsRow);
 
   const out = [];
   for (const s of sensors) {
@@ -233,14 +287,16 @@ function mergeSameChannel(rows, windowSec){
       const dt = Math.abs(s.ts - g.ts);
       if (dt < bestDt && dt <= W) { best = g; bestDt = dt; }
     }
-    out.push({
-      created_at: s.created_at,
-      pm1: s.pm1, pm25: s.pm25, pm10: s.pm10,
-      co2: s.co2, temp: s.temp, hum: s.hum,
-      lat: best ? best.lat : '',
-      lon: best ? best.lon : '',
-      dt_s: best ? Math.round(bestDt/1000) : ''
-    });
+    // Only push if GPS match found
+    if (best && Number.isFinite(best.lat) && Number.isFinite(best.lon)) {
+      out.push({
+        created_at: s.created_at,
+        pm1: s.pm1 ?? '', pm25: s.pm25 ?? '', pm10: s.pm10 ?? '',
+        co2: s.co2 ?? '', temp: s.temp ?? '', hum: s.hum ?? '',
+        lat: best.lat, lon: best.lon,
+        dt_s: Math.round(bestDt/1000)
+      });
+    }
   }
   return out;
 }
@@ -275,10 +331,10 @@ function toCSV(rows){
 }
 
 document.getElementById('fetchBtn').addEventListener('click', async () => {
-  const chId = document.getElementById('chId').value.trim();
-  const readKey = document.getElementById('readKey').value.trim();
-  const results = Math.max(10, parseInt(document.getElementById('results').value || '200', 10));
-  const windowSec = Math.max(10, parseInt(document.getElementById('window').value || '45', 10));
+  const chId = $("#chId").value.trim();
+  const readKey = $("#readKey").value.trim();
+  const results = Math.max(10, parseInt($("#results").value || '200', 10));
+  const windowSec = Math.max(10, parseInt($("#window").value || '90', 10));
 
   try {
     setMergeStatus('Fetching…');
@@ -287,7 +343,7 @@ document.getElementById('fetchBtn').addEventListener('click', async () => {
     const merged = mergeSameChannel(rows, windowSec);
     lastMerged = merged;
     renderTable(merged);
-    document.getElementById('dlBtn').disabled = merged.length === 0;
+    dlBtn.disabled = merged.length === 0;
   } catch (e) {
     setMergeStatus(`Error: ${e.message}`, 'err');
   }
