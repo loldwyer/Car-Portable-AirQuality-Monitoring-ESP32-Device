@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>GPS → ThingSpeak (Auto-Parity) + Merge Viewer</title>
+  <title>GPS → ThingSpeak (Auto-Parity) + Merge Viewer + Distance</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -17,8 +17,8 @@
     .ghost{background:#e5e7eb}
     .ok{color:#16a34a}.warn{color:#f59e0b}.err{color:#ef4444}.muted{color:#6b7280}
     table{width:100%;border-collapse:collapse;font-size:.95rem}
-    th,td{border:1px solid #e5e7eb;padding:.45rem .5rem}
-    th{background:#f3f4f6;text-align:left}
+    th,td{border:1px solid #e5e7eb;padding:.45rem .5rem;white-space:nowrap}
+    th{background:#f3f4f6;text-align:left;position:sticky;top:0}
     .controls label{display:block;font-size:.9rem;margin:.4rem 0 .2rem}
     .controls input{width:100%;padding:.45rem .5rem;border:1px solid #d1d5db;border-radius:8px}
     .small{font-size:.9rem}
@@ -151,35 +151,28 @@ async function autoAlignParity(latJustSent, lonJustSent){
   try {
     setAlign('checking…');
     const rows = await readChannelFeeds(chId, readKey, 20);
-    // Latest sensor row:
     const sensors = rows.filter(isSensorRow).sort((a,b)=>b.ts-a.ts);
     const gpsRows = rows.filter(isGpsRow).sort((a,b)=>b.ts-a.ts);
     if (!sensors.length || !gpsRows.length){ setAlign('not enough rows yet', 'warn'); return; }
 
     const latestSensor = sensors[0];
     const latestGps = gpsRows[0];
+    const dt = Math.abs(latestSensor.ts - latestGps.ts)/1000;
 
-    // If the latest GPS row is not ours (e.g., older), still fine — we only need dt
-    const dt = Math.abs(latestSensor.ts - latestGps.ts)/1000; // seconds
-
-    // Heuristics:
-    // - dt < 5s  → likely same slot / collision → flip
-    // - dt > 30s → likely wrong phase (expect ~15–20s offset) → flip
-    // else within 8–25s → looks aligned
     let shouldFlip = (dt < 5) || (dt > 30);
     if (shouldFlip) {
       mismatchCount++;
       setAlign(`misaligned (Δt=${Math.round(dt)}s) ${mismatchCount}/${MIS_MATCH_TO_FLIP}`, 'warn');
       if (mismatchCount >= MIS_MATCH_TO_FLIP) {
-        gpsParity = (gpsParity ^ 1);     // flip 0<->1
+        gpsParity = (gpsParity ^ 1);
         setParityLabel(gpsParity);
         setAlign('flipped parity ✔', 'ok');
-        autoAligned = true;              // lock after first decisive flip
+        autoAligned = true;
         mismatchCount = 0;
       }
     } else {
       setAlign(`aligned (Δt=${Math.round(dt)}s)`, 'ok');
-      autoAligned = true;                // good → lock
+      autoAligned = true;
       mismatchCount = 0;
     }
   } catch(e){
@@ -188,6 +181,7 @@ async function autoAlignParity(latJustSent, lonJustSent){
 }
 
 /* ==== GPS → ThingSpeak upload ==== */
+const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update.json";
 async function postToThingSpeak(lat, lon){
   try {
     const body = new URLSearchParams({
@@ -201,7 +195,7 @@ async function postToThingSpeak(lat, lon){
       body: body.toString()
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const entryId = await r.json();   // returns id or 0
+    const entryId = await r.json();
     if (+entryId === 0) {
       setStatus('TS rejected GPS (rate/key?)', 'err');
       return 0;
@@ -218,17 +212,15 @@ async function trySlotUpload(){
   if (lastLat == null || lastLon == null) return;
   const slot = currentSlot();
   $("#slot").textContent = String(slot);
-  if (slot === lastSlotSent) return;       // already sent this slot
-  if ((slot % 2) !== gpsParity) return;    // not our phase
+  if (slot === lastSlotSent) return;
+  if ((slot % 2) !== gpsParity) return;
 
-  // tiny jitter so both sides don't hit the exact boundary
   const jitter = 200 + (slot % 5) * 60;
   await new Promise(res => setTimeout(res, jitter));
 
   const id = await postToThingSpeak(lastLat, lastLon);
   if (id > 0) {
     lastSlotSent = slot;
-    // run auto-parity once, right after the first successful GPS post
     autoAlignParity(lastLat, lastLon);
   }
 }
@@ -249,10 +241,7 @@ document.getElementById('startBtn').addEventListener('click', () => {
     else marker = L.marker([lastLat, lastLon]).addTo(map);
     map.setView([lastLat, lastLon], Math.max(map.getZoom(), 15));
 
-    // first fix: attempt immediate slot upload
     trySlotUpload();
-
-    // Start 1 Hz slot checker
     if (!slotTimer) slotTimer = setInterval(trySlotUpload, 1000);
   }, err => {
     setStatus(`GPS error: ${err.message}`, 'err');
@@ -267,13 +256,25 @@ document.getElementById('stopBtn').addEventListener('click', () => {
   autoAligned = false; mismatchCount = 0;
 });
 
-/* ==== Merge viewer (same channel) ==== */
+/* ==== Merge viewer (same channel) + distance ==== */
 const tbl = document.getElementById('tbl');
 const mergeStatus = document.getElementById('mergeStatus');
 const dlBtn = document.getElementById('dlBtn');
 let lastMerged = [];
 
 function setMergeStatus(msg, cls='muted'){ mergeStatus.className = cls; mergeStatus.textContent = msg; }
+
+// Haversine distance in meters
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // m
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
 
 function mergeSameChannel(rows, windowSec){
   const W = windowSec * 1000;
@@ -287,10 +288,10 @@ function mergeSameChannel(rows, windowSec){
       const dt = Math.abs(s.ts - g.ts);
       if (dt < bestDt && dt <= W) { best = g; bestDt = dt; }
     }
-    // Only push if GPS match found
     if (best && Number.isFinite(best.lat) && Number.isFinite(best.lon)) {
       out.push({
         created_at: s.created_at,
+        ts: s.ts,
         pm1: s.pm1 ?? '', pm25: s.pm25 ?? '', pm10: s.pm10 ?? '',
         co2: s.co2 ?? '', temp: s.temp ?? '', hum: s.hum ?? '',
         lat: best.lat, lon: best.lon,
@@ -298,12 +299,32 @@ function mergeSameChannel(rows, windowSec){
       });
     }
   }
+
+  // sort by time ascending before computing distances
+  out.sort((a,b)=>a.ts-b.ts);
+
+  // per-leg distance + cumulative
+  let cum = 0;
+  for (let i=0; i<out.length; i++){
+    if (i===0) {
+      out[i].dist_m = '';
+      out[i].cum_m = 0;
+    } else {
+      const p = out[i-1], c = out[i];
+      const d = haversineMeters(p.lat, p.lon, c.lat, c.lon);
+      // simple glitch guard: ignore >5 km jumps
+      const leg = (d <= 5000) ? Math.round(d) : '';
+      if (typeof leg === 'number') cum += leg;
+      out[i].dist_m = leg;
+      out[i].cum_m = Math.round(cum);
+    }
+  }
   return out;
 }
 
 function renderTable(rows){
   if (!rows.length) { tbl.innerHTML = '<tr><td>No merged rows</td></tr>'; return; }
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s'];
+  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','dist_m','cum_m'];
   tbl.innerHTML =
     '<thead><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead>' +
     '<tbody>' + rows.map(r => '<tr>' +
@@ -311,19 +332,24 @@ function renderTable(rows){
     '</tr>').join('') + '</tbody>';
 
   const deltas = rows.map(r=>r.dt_s).filter(v=>typeof v==='number');
+  let footer = `Done (${rows.length}). `;
   if (deltas.length){
     const sum = deltas.reduce((a,b)=>a+b,0);
     const avg = Math.round(sum/deltas.length);
     const min = Math.min(...deltas);
     const max = Math.max(...deltas);
-    setMergeStatus(`Done (${rows.length}). Δt [min=${min}s, avg=${avg}s, max=${max}s]`, 'ok');
-  } else {
-    setMergeStatus(`Done (${rows.length}). No GPS matches in window.`, 'warn');
+    footer += `Δt [min=${min}s, avg=${avg}s, max=${max}s]. `;
   }
+  const last = rows[rows.length-1];
+  if (last && typeof last.cum_m === 'number') {
+    const km = (last.cum_m/1000).toFixed(2);
+    footer += `Distance ≈ ${last.cum_m} m (${km} km).`;
+  }
+  setMergeStatus(footer.trim(), 'ok');
 }
 
 function toCSV(rows){
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s'];
+  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','dist_m','cum_m'];
   const lines = [cols.join(',')].concat(
     rows.map(r => cols.map(c => String(r[c] ?? '')).join(','))
   );
@@ -354,7 +380,7 @@ document.getElementById('dlBtn').addEventListener('click', () => {
   const blob = new Blob([toCSV(lastMerged)], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'merged_thingspeak.csv';
+  a.href = url; a.download = 'merged_thingspeak_with_distance.csv';
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 });
