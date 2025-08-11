@@ -25,8 +25,34 @@
   </style>
 </head>
 <body>
+  <!-- Header -->
+<header>
+  <div class="header-layout">
+    <div class="logo-container">
+      <img src="images/dcu_logo.jpg" class="dcu-logo-left" alt="DCU Logo" />
+    </div>
+    <div class="header-content">
+      <h1>Car Portable Urban Air Quality Monitor</h1>
+      <p class="tagline">Live CO₂, PM, RH/Temp via ThingSpeak + GPS (opt-in)</p>
+      <p class="author">Lauren Dwyer | Student No. 38529 | MECE1</p>
+    </div>
+  </div>
+</header>
 
-<h1>GPS → ThingSpeak + Auto-Parity + Merged Table (AQI + Speed)</h1>
+  <nav class="topnav">
+  <ul>
+    <li><a href="#" onclick="showSection('sensor-overview')" class="navlink active">Sensor Overview</a></li>
+    <li><a href="#" onclick="showSection('hardware')" class="navlink">Hardware</a></li>
+    <li><a href="#" onclick="showSection('enclosure')" class="navlink">Enclosure & Mounting</a></li>
+    <li><a href="#" onclick="showSection('deployment')" class="navlink">Deployment</a></li>
+  </ul>
+</nav>
+
+  <!-- Sensor Section -->
+<section id="sensor-overview">
+  <h1>Sensor Overview</h2>
+<h2>GPS → ThingSpeak + Auto-Parity + Merged Table (AQI + Speed)</h1>
+  
 <p class="small">
   Status: <span id="status" class="muted">Idle</span> •
   Parity: <span id="parity" class="muted">odd (auto)</span> •
@@ -71,7 +97,83 @@
     </div>
   </div>
 </div>
+  <label for="sensorSelect"><strong>View by Sensor:</strong></label>
+  <select id="sensorSelect" onchange="handleSensorSelect(this.value)">
+    <option value="none">-- Select --</option>
+    <option value="scd30">SCD30 (CO₂, Temp, RH)</option>
+    <option value="sps30">SPS30 (PM1.0, PM2.5, PM10)</option>
+    <option value="mics">MiCS-4514 (NO₂)</option>
+  </select>
 
+  <div class="tabs">
+    <button class="tablink" onclick="showTab('co2', this)">CO₂</button>
+    <button class="tablink" onclick="showTab('pm25', this)">PM2.5</button>
+    <button class="tablink" onclick="showTab('pm10', this)">PM10</button>
+    <button class="tablink" onclick="showTab('pm1', this)">PM1.0</button>
+    <button class="tablink" onclick="showTab('temp', this)">Temp</button>
+    <button class="tablink" onclick="showTab('rh', this)">Humidity</button>
+  </div>
+
+  <div id="sensorTabs" class="tab-group">
+    <div id="co2" class="tabcontent tab-box">
+      <p><strong>Latest CO₂:</strong> <span id="co2val">Loading...</span> ppm</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/4?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="pm25" class="tabcontent tab-box">
+      <p><strong>Latest PM2.5:</strong> <span id="pm25val">Loading...</span> µg/m³</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/2?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="pm10" class="tabcontent tab-box">
+      <p><strong>Latest PM10:</strong> <span id="pm10val">Loading...</span> µg/m³</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/3?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="pm1" class="tabcontent tab-box">
+      <p><strong>Latest PM1.0:</strong> <span id="pm1val">Loading...</span> µg/m³</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/1?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="temp" class="tabcontent tab-box">
+      <p><strong>Latest Temp:</strong> <span id="tempval">Loading...</span> °C</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/5?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+    <div id="rh" class="tabcontent tab-box">
+      <p><strong>Latest Humidity:</strong> <span id="humval">Loading...</span> %</p>
+      <iframe src="https://thingspeak.com/channels/2960675/charts/6?dynamic=true&w=1000&h=400"></iframe>
+    </div>
+
+  </div>
+</section>
+
+<!-- Hardware Section -->
+<section id="hardware">
+  <h2>Hardware Overview</h2>
+  <p>This system uses the following components:</p>
+  <ul>
+    <li><a href="https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html" target="_blank">ESP32-DEVKITC-VE</a></li>
+    <li><a href="https://sensirion.com/media/documents/4EAF6AF8/61652C3C/Sensirion_CO2_Sensors_SCD30_Datasheet.pdf" target="_blank">SCD30: CO₂, Temperature, Humidity</a></li>
+    <li><a href="https://sensirion.com/media/documents/B7AAA101/61653FB8/Sensirion_Particulate_Matter_AppNotes_Specification_Statement.pdf" target="_blank">SPS30: PM1.0, PM2.5, PM10</a></li>
+    <li><a href="https://www.sgxsensortech.com/content/uploads/2014/08/0278_Datasheet-MiCS-4514.pdf" target="_blank">MiCS-4514: NO₂</a></li>
+    <li><a href="https://www.analog.com/media/en/technical-documentation/data-sheets/ds3231.pdf" target="_blank">DS3231 RTC</a></li>
+    <li>MicroSD Card Module</li>
+    <li><a href="https://www.handsontec.com/dataspecs/I2C_2004_LCD.pdf" target="_blank">LCD Display</a></li>
+    <li><a href="https://www.aliexpress.com/item/1005007835418978.html" target="_blank">Li-Ion Battery Pack</a></li>
+  </ul>
+</section>
+
+<section id="enclosure">
+  <h2>Enclosure & Mounting</h2>
+  <p>Weatherproof enclosure with airflow slots; roof-mounted using suction + straps.</p>
+</section>
+
+<section id="deployment">
+  <h2>Deployment</h2>
+  <p>Uploaded every 30 seconds to <a href="https://thingspeak.mathworks.com/channels/2960675" target="_blank">ThingSpeak</a>, Blynk, and microSD during July/August 2025 trials.</p>
+</section>
+  
 <script>
 const THINGSPEAK_WRITE_KEY = "9YXHS30JF6Z9YHXI";
 const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update.json";
