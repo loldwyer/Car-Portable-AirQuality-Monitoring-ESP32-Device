@@ -233,12 +233,13 @@ iframe {
 
   <!-- Sensor Section -->
 <section id="sensor-overview">
-<h2>GPS → ThingSpeak + Auto-Parity + Merged Table (AQI + Speed)</h1>
+<h1>GPS → ThingSpeak + Auto-Parity + Merged Table (AQI + Speed)</h1>
   <p>Sensor data is continously sent from ESP32 to Thingspeak. Press the 'Start GPS Upload' button to allow device tracking and the sending of device data to Thingspeak.
   <li>This GPS data will be 'merged' with the sensor data using the 'Fetch&Merge' button below </li>
     <li>Once merged the data can be viewed in this browser or downloaded in .csv format for sanalysis</li>
 <li>Thingspeak graphs can be viewed in this Sensor Overview section or on <a href="https://thingspeak.mathworks.com/channels/2960675"> ThingSpeak itself</a></li>  </p>
-  
+
+ <h2>GPS Permission</h2> 
 <p class="small">
   Status: <span id="status" class="muted">Idle</span> •
   Parity: <span id="parity" class="muted">odd (auto)</span> •
