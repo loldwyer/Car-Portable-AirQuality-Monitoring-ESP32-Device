@@ -243,6 +243,9 @@ $("#stopBtn").addEventListener('click', () => {
   setStatus('Stopped', 'muted');
 });
 
+let lastMerged = []; // store last merge result
+let lastCols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','speed_kmh','aqi'];
+
 $("#fetchBtn").addEventListener('click', async () => {
   const chId = $("#chId").value.trim();
   const readKey = $("#readKey").value.trim();
@@ -252,25 +255,29 @@ $("#fetchBtn").addEventListener('click', async () => {
     $("#mergeStatus").textContent = 'Fetching…';
     const rows = await readChannelFeeds(chId, readKey, results);
     $("#mergeStatus").textContent = 'Merging…';
-    const merged = mergeSameChannel(rows, windowSec);
-    renderTable(merged);
-    $("#dlBtn").disabled = merged.length === 0;
+    lastMerged = mergeSameChannel(rows, windowSec);
+    renderTable(lastMerged);
+    $("#dlBtn").disabled = lastMerged.length === 0;
+    $("#mergeStatus").textContent = `Merged ${lastMerged.length} rows`;
   } catch (e) {
     $("#mergeStatus").textContent = `Error: ${e.message}`;
   }
 });
 
 $("#dlBtn").addEventListener('click', () => {
-  const rows = mergeSameChannel(lastFetched, windowSec);
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','speed_kmh','aqi'];
-  const lines = [cols.join(',')].concat(rows.map(r => cols.map(c => r[c]).join(',')));
+  if (!lastMerged.length) return;
+  const lines = [lastCols.join(',')].concat(lastMerged.map(r => lastCols.map(c => r[c]).join(',')));
   const blob = new Blob([lines.join('\n')], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'merged_thingspeak.csv';
-  document.body.appendChild(a); a.click(); a.remove();
+  a.href = url;
+  a.download = 'merged_thingspeak.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 });
+
 </script>
 </body>
 </html>
