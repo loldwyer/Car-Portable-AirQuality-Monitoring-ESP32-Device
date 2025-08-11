@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>v1GPS → ThingSpeak (Auto-Parity) + Merge Viewer + Distance</title>
+  <title>GPS → ThingSpeak (Auto-Parity) + Merge Viewer + AQI/Speed</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -17,8 +17,8 @@
     .ghost{background:#e5e7eb}
     .ok{color:#16a34a}.warn{color:#f59e0b}.err{color:#ef4444}.muted{color:#6b7280}
     table{width:100%;border-collapse:collapse;font-size:.95rem}
-    th,td{border:1px solid #e5e7eb;padding:.45rem .5rem;white-space:nowrap}
-    th{background:#f3f4f6;text-align:left;position:sticky;top:0}
+    th,td{border:1px solid #e5e7eb;padding:.45rem .5rem}
+    th{background:#f3f4f6;text-align:left}
     .controls label{display:block;font-size:.9rem;margin:.4rem 0 .2rem}
     .controls input{width:100%;padding:.45rem .5rem;border:1px solid #d1d5db;border-radius:8px}
     .small{font-size:.9rem}
@@ -26,7 +26,7 @@
 </head>
 <body>
 
-<h1>GPS → ThingSpeak (phone 4G) + Auto-Parity + Merged Table</h1>
+<h1>GPS → ThingSpeak + Auto-Parity + Merged Table (AQI + Speed)</h1>
 <p class="small">
   Status: <span id="status" class="muted">Idle</span> •
   Parity: <span id="parity" class="muted">odd (auto)</span> •
@@ -34,31 +34,27 @@
 </p>
 
 <div class="row">
-  <!-- LEFT: GPS uploader + map -->
   <div class="col">
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="btn primary" id="startBtn">Start GPS Upload</button>
       <button class="btn ghost" id="stopBtn">Stop</button>
     </div>
-
     <div id="map"></div>
     <p class="muted small" style="margin:.2rem 0 0">
-      Writes: <b>field7</b>=Latitude, <b>field8</b>=Longitude • slot = <span id="slot">—</span>
+      Writes: field7=Latitude, field8=Longitude • slot = <span id="slot">—</span>
     </p>
-
     <div class="controls" style="margin-top:.75rem">
-      <label>Channel ID (for auto-parity + merge)</label>
+      <label>Channel ID</label>
       <input id="chId" value="2960675" />
       <label>Read API Key (blank if public)</label>
       <input id="readKey" value="" />
-      <label class="small">Slot length (ms) — keep at 40000 to match ESP32</label>
+      <label class="small">Slot length (ms)</label>
       <input id="slotLen" type="number" value="40000" />
     </div>
   </div>
 
-  <!-- RIGHT: Merge viewer -->
   <div class="col">
-    <h3 style="margin:.2rem 0 .6rem">Fetch & Merge (same channel)</h3>
+    <h3>Fetch & Merge</h3>
     <div class="controls">
       <label>How many latest rows</label>
       <input id="results" type="number" value="200" />
@@ -77,202 +73,79 @@
 </div>
 
 <script>
-/* ==== CONFIG (GPS writer) ==== */
-const THINGSPEAK_WRITE_KEY = "9YXHS30JF6Z9YHXI";      // your WRITE key
+const THINGSPEAK_WRITE_KEY = "9YXHS30JF6Z9YHXI";
 const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update.json";
 
-/* ==== UI helpers ==== */
 const $ = s => document.querySelector(s);
 function setStatus(msg, cls='muted'){ const el=$("#status"); el.className=cls; el.textContent=msg; }
 function setParityLabel(p){ $("#parity").textContent = p===1 ? "odd" : "even"; }
 function setAlign(msg, cls='muted'){ const el=$("#align"); el.className=cls; el.textContent=msg; }
 
-/* ==== MAP ==== */
 let map = L.map('map').setView([53.35, -6.26], 12);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '&copy; OpenStreetMap'
-}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
 let marker;
 
-/* ==== Slotting + GPS state ==== */
-let SLOT_MS = parseInt($("#slotLen").value,10) || 40000; // must match ESP32
+let SLOT_MS = parseInt($("#slotLen").value,10) || 40000;
 $("#slotLen").addEventListener('change', ()=>{ SLOT_MS = parseInt($("#slotLen").value,10) || 40000; });
 
 let gpsWatchId = null;
 let lastLat = null, lastLon = null;
 let slotTimer = null;
 let lastSlotSent = -1;
-
-// Start with ODD (1) to avoid ESP32 EVEN collisions; auto-align will flip if needed
-let gpsParity = 1;                  // 0 = even slots, 1 = odd slots
+let gpsParity = 1;
 let autoAligned = false;
-let mismatchCount = 0;              // hysteresis
+let mismatchCount = 0;
 const MIS_MATCH_TO_FLIP = 2;
-
 const currentSlot = () => Math.floor(Date.now() / SLOT_MS);
 
-/* ==== ThingSpeak read helpers (for auto-parity + merge) ==== */
 async function readChannelFeeds(channelId, readKey, results=40) {
   const base = `https://api.thingspeak.com/channels/${channelId}/feeds.json`;
   const u = new URL(base);
   if (readKey) u.searchParams.set('api_key', readKey);
   u.searchParams.set('results', results);
-  const r = await fetch(u.toString(), {cache:'no-store'});
+  const r = await fetch(u, {cache:'no-store'});
   if (!r.ok) throw new Error(`TS read HTTP ${r.status}`);
   const j = await r.json();
   return j.feeds.map(f => ({
     created_at: f.created_at,
     ts: new Date(f.created_at).getTime(),
-    pm1:   f.field1 ? parseFloat(f.field1) : null,
-    pm25:  f.field2 ? parseFloat(f.field2) : null,
-    pm10:  f.field3 ? parseFloat(f.field3) : null,
-    co2:   f.field4 ? parseFloat(f.field4) : null,
-    temp:  f.field5 ? parseFloat(f.field5) : null,
-    hum:   f.field6 ? parseFloat(f.field6) : null,
-    lat:   f.field7 !== undefined && f.field7 !== null ? parseFloat(f.field7) : NaN,
-    lon:   f.field8 !== undefined && f.field8 !== null ? parseFloat(f.field8) : NaN
+    pm1: parseFloat(f.field1) || null,
+    pm25: parseFloat(f.field2) || null,
+    pm10: parseFloat(f.field3) || null,
+    co2: parseFloat(f.field4) || null,
+    temp: parseFloat(f.field5) || null,
+    hum: parseFloat(f.field6) || null,
+    lat: parseFloat(f.field7),
+    lon: parseFloat(f.field8)
   }));
 }
 
-function isSensorRow(r){
-  return [r.pm1,r.pm25,r.pm10,r.co2,r.temp,r.hum].some(v => typeof v === 'number' && !Number.isNaN(v));
+function isSensorRow(r){ return [r.pm1,r.pm25,r.pm10,r.co2,r.temp,r.hum].some(v => typeof v === 'number' && !Number.isNaN(v)); }
+function isGpsRow(r){ return Number.isFinite(r.lat) && Number.isFinite(r.lon); }
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLon = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); // km
 }
-function isGpsRow(r){
-  return Number.isFinite(r.lat) && Number.isFinite(r.lon);
-}
 
-/* ==== Auto-parity alignment ==== */
-async function autoAlignParity(latJustSent, lonJustSent){
-  if (autoAligned) return; // do once per session unless forced
-  const chId = $("#chId").value.trim();
-  const readKey = $("#readKey").value.trim();
-  if (!chId) { setAlign("no channel ID", 'warn'); return; }
-
-  try {
-    setAlign('checking…');
-    const rows = await readChannelFeeds(chId, readKey, 20);
-    const sensors = rows.filter(isSensorRow).sort((a,b)=>b.ts-a.ts);
-    const gpsRows = rows.filter(isGpsRow).sort((a,b)=>b.ts-a.ts);
-    if (!sensors.length || !gpsRows.length){ setAlign('not enough rows yet', 'warn'); return; }
-
-    const latestSensor = sensors[0];
-    const latestGps = gpsRows[0];
-    const dt = Math.abs(latestSensor.ts - latestGps.ts)/1000;
-
-    let shouldFlip = (dt < 5) || (dt > 30);
-    if (shouldFlip) {
-      mismatchCount++;
-      setAlign(`misaligned (Δt=${Math.round(dt)}s) ${mismatchCount}/${MIS_MATCH_TO_FLIP}`, 'warn');
-      if (mismatchCount >= MIS_MATCH_TO_FLIP) {
-        gpsParity = (gpsParity ^ 1);
-        setParityLabel(gpsParity);
-        setAlign('flipped parity ✔', 'ok');
-        autoAligned = true;
-        mismatchCount = 0;
-      }
-    } else {
-      setAlign(`aligned (Δt=${Math.round(dt)}s)`, 'ok');
-      autoAligned = true;
-      mismatchCount = 0;
+function calcAQIpm25(pm) {
+  const bp = [
+    {cLow:0.0, cHigh:12.0, aqiLow:0, aqiHigh:50},
+    {cLow:12.1, cHigh:35.4, aqiLow:51, aqiHigh:100},
+    {cLow:35.5, cHigh:55.4, aqiLow:101, aqiHigh:150},
+    {cLow:55.5, cHigh:150.4, aqiLow:151, aqiHigh:200},
+    {cLow:150.5, cHigh:250.4, aqiLow:201, aqiHigh:300},
+    {cLow:250.5, cHigh:500.4, aqiLow:301, aqiHigh:500}
+  ];
+  for (let i of bp) {
+    if (pm >= i.cLow && pm <= i.cHigh) {
+      return Math.round(((i.aqiHigh - i.aqiLow)/(i.cHigh - i.cLow)) * (pm - i.cLow) + i.aqiLow);
     }
-  } catch(e){
-    setAlign(`align error: ${e.message}`, 'err');
   }
-}
-
-/* ==== GPS → ThingSpeak upload ==== */
-async function postToThingSpeak(lat, lon){
-  try {
-    const body = new URLSearchParams({
-      api_key: THINGSPEAK_WRITE_KEY,
-      field7: lat,
-      field8: lon
-    });
-    const r = await fetch(THINGSPEAK_UPDATE_URL, {
-      method: 'POST',
-      headers: {'Content-Type':'application/x-www-form-urlencoded'},
-      body: body.toString()
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const entryId = await r.json();
-    if (+entryId === 0) {
-      setStatus('TS rejected GPS (rate/key?)', 'err');
-      return 0;
-    }
-    setStatus(`GPS uploaded: ${lat.toFixed(6)}, ${lon.toFixed(6)} (entry ${entryId})`, 'ok');
-    return +entryId;
-  } catch(e){
-    setStatus(`Upload error: ${e.message}`, 'err');
-    return 0;
-  }
-}
-
-async function trySlotUpload(){
-  if (lastLat == null || lastLon == null) return;
-  const slot = currentSlot();
-  $("#slot").textContent = String(slot);
-  if (slot === lastSlotSent) return;
-  if ((slot % 2) !== gpsParity) return;
-
-  const jitter = 200 + (slot % 5) * 60;
-  await new Promise(res => setTimeout(res, jitter));
-
-  const id = await postToThingSpeak(lastLat, lastLon);
-  if (id > 0) {
-    lastSlotSent = slot;
-    autoAlignParity(lastLat, lastLon);
-  }
-}
-
-/* ==== Start/Stop ==== */
-document.getElementById('startBtn').addEventListener('click', () => {
-  if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
-  if (gpsWatchId) { setStatus('Already running', 'warn'); return; }
-
-  setStatus('Starting GPS…');
-  setParityLabel(gpsParity);
-
-  gpsWatchId = navigator.geolocation.watchPosition(pos => {
-    lastLat = pos.coords.latitude;
-    lastLon = pos.coords.longitude;
-
-    if (marker) marker.setLatLng([lastLat, lastLon]);
-    else marker = L.marker([lastLat, lastLon]).addTo(map);
-    map.setView([lastLat, lastLon], Math.max(map.getZoom(), 15));
-
-    trySlotUpload();
-    if (!slotTimer) slotTimer = setInterval(trySlotUpload, 1000);
-  }, err => {
-    setStatus(`GPS error: ${err.message}`, 'err');
-  }, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
-});
-
-document.getElementById('stopBtn').addEventListener('click', () => {
-  if (gpsWatchId) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
-  if (slotTimer) { clearInterval(slotTimer); slotTimer = null; }
-  setStatus('Stopped', 'muted');
-  setAlign('waiting', 'muted');
-  autoAligned = false; mismatchCount = 0;
-});
-
-/* ==== Merge viewer (same channel) + distance ==== */
-const tbl = document.getElementById('tbl');
-const mergeStatus = document.getElementById('mergeStatus');
-const dlBtn = document.getElementById('dlBtn');
-let lastMerged = [];
-
-function setMergeStatus(msg, cls='muted'){ mergeStatus.className = cls; mergeStatus.textContent = msg; }
-
-// Haversine distance in meters
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // m
-  const toRad = d => d * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat/2)**2 +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-            Math.sin(dLon/2)**2;
-  return 2 * R * Math.asin(Math.sqrt(a));
+  return null;
 }
 
 function mergeSameChannel(rows, windowSec){
@@ -281,6 +154,8 @@ function mergeSameChannel(rows, windowSec){
   const gps = rows.filter(isGpsRow);
 
   const out = [];
+  let prevLat = null, prevLon = null, prevTime = null;
+
   for (const s of sensors) {
     let best = null, bestDt = Infinity;
     for (const g of gps) {
@@ -288,102 +163,114 @@ function mergeSameChannel(rows, windowSec){
       if (dt < bestDt && dt <= W) { best = g; bestDt = dt; }
     }
     if (best && Number.isFinite(best.lat) && Number.isFinite(best.lon)) {
+      let speed = null;
+      if (prevLat != null && prevLon != null && prevTime != null) {
+        const distKm = haversine(prevLat, prevLon, best.lat, best.lon);
+        const dtHr = (s.ts - prevTime) / 3600000;
+        if (dtHr > 0) speed = +(distKm / dtHr).toFixed(1);
+      }
+      const aqi = (() => {
+        let base = calcAQIpm25(s.pm25);
+        if (s.co2 > 1000) base += 5;
+        if (s.co2 > 2000) base += 15;
+        return base;
+      })();
       out.push({
         created_at: s.created_at,
-        ts: s.ts,
         pm1: s.pm1 ?? '', pm25: s.pm25 ?? '', pm10: s.pm10 ?? '',
         co2: s.co2 ?? '', temp: s.temp ?? '', hum: s.hum ?? '',
         lat: best.lat, lon: best.lon,
-        dt_s: Math.round(bestDt/1000)
+        dt_s: Math.round(bestDt/1000),
+        speed_kmh: speed ?? '',
+        aqi: aqi ?? ''
       });
-    }
-  }
-
-  // sort by time ascending before computing distances
-  out.sort((a,b)=>a.ts-b.ts);
-
-  // per-leg distance + cumulative
-  let cum = 0;
-  for (let i=0; i<out.length; i++){
-    if (i===0) {
-      out[i].dist_m = '';
-      out[i].cum_m = 0;
-    } else {
-      const p = out[i-1], c = out[i];
-      const d = haversineMeters(p.lat, p.lon, c.lat, c.lon);
-      // simple glitch guard: ignore >5 km jumps
-      const leg = (d <= 5000) ? Math.round(d) : '';
-      if (typeof leg === 'number') cum += leg;
-      out[i].dist_m = leg;
-      out[i].cum_m = Math.round(cum);
+      prevLat = best.lat; prevLon = best.lon; prevTime = s.ts;
     }
   }
   return out;
 }
 
 function renderTable(rows){
-  if (!rows.length) { tbl.innerHTML = '<tr><td>No merged rows</td></tr>'; return; }
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','dist_m','cum_m'];
-  tbl.innerHTML =
+  if (!rows.length) { $("#tbl").innerHTML = '<tr><td>No merged rows</td></tr>'; return; }
+  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','speed_kmh','aqi'];
+  $("#tbl").innerHTML =
     '<thead><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead>' +
     '<tbody>' + rows.map(r => '<tr>' +
       cols.map(c => `<td>${(r[c] ?? '')}</td>`).join('') +
     '</tr>').join('') + '</tbody>';
-
-  const deltas = rows.map(r=>r.dt_s).filter(v=>typeof v==='number');
-  let footer = `Done (${rows.length}). `;
-  if (deltas.length){
-    const sum = deltas.reduce((a,b)=>a+b,0);
-    const avg = Math.round(sum/deltas.length);
-    const min = Math.min(...deltas);
-    const max = Math.max(...deltas);
-    footer += `Δt [min=${min}s, avg=${avg}s, max=${max}s]. `;
-  }
-  const last = rows[rows.length-1];
-  if (last && typeof last.cum_m === 'number') {
-    const km = (last.cum_m/1000).toFixed(2);
-    footer += `Distance ≈ ${last.cum_m} m (${km} km).`;
-  }
-  setMergeStatus(footer.trim(), 'ok');
 }
 
-function toCSV(rows){
-  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','dist_m','cum_m'];
-  const lines = [cols.join(',')].concat(
-    rows.map(r => cols.map(c => String(r[c] ?? '')).join(','))
-  );
-  return lines.join('\n');
+async function postToThingSpeak(lat, lon){
+  try {
+    const body = new URLSearchParams({api_key: THINGSPEAK_WRITE_KEY, field7: lat, field8: lon});
+    const r = await fetch(THINGSPEAK_UPDATE_URL, {method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const entryId = await r.json();
+    if (+entryId === 0) { setStatus('TS rejected GPS', 'err'); return 0; }
+    setStatus(`GPS uploaded: ${lat.toFixed(6)}, ${lon.toFixed(6)}`, 'ok');
+    return +entryId;
+  } catch(e){ setStatus(`Upload error: ${e.message}`, 'err'); return 0; }
 }
 
-document.getElementById('fetchBtn').addEventListener('click', async () => {
+async function trySlotUpload(){
+  if (lastLat == null || lastLon == null) return;
+  const slot = currentSlot();
+  $("#slot").textContent = String(slot);
+  if (slot === lastSlotSent) return;
+  if ((slot % 2) !== gpsParity) return;
+  await new Promise(res => setTimeout(res, 200));
+  const id = await postToThingSpeak(lastLat, lastLon);
+  if (id > 0) lastSlotSent = slot;
+}
+
+$("#startBtn").addEventListener('click', () => {
+  if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
+  if (gpsWatchId) { setStatus('Already running', 'warn'); return; }
+  gpsWatchId = navigator.geolocation.watchPosition(pos => {
+    lastLat = pos.coords.latitude;
+    lastLon = pos.coords.longitude;
+    if (marker) marker.setLatLng([lastLat, lastLon]);
+    else marker = L.marker([lastLat, lastLon]).addTo(map);
+    map.setView([lastLat, lastLon], 15);
+    trySlotUpload();
+    if (!slotTimer) slotTimer = setInterval(trySlotUpload, 1000);
+  }, err => setStatus(`GPS error: ${err.message}`, 'err'), { enableHighAccuracy:true });
+});
+
+$("#stopBtn").addEventListener('click', () => {
+  if (gpsWatchId) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+  if (slotTimer) { clearInterval(slotTimer); slotTimer = null; }
+  setStatus('Stopped', 'muted');
+});
+
+$("#fetchBtn").addEventListener('click', async () => {
   const chId = $("#chId").value.trim();
   const readKey = $("#readKey").value.trim();
-  const results = Math.max(10, parseInt($("#results").value || '200', 10));
-  const windowSec = Math.max(10, parseInt($("#window").value || '90', 10));
-
+  const results = parseInt($("#results").value || '200', 10);
+  const windowSec = parseInt($("#window").value || '90', 10);
   try {
-    setMergeStatus('Fetching…');
+    $("#mergeStatus").textContent = 'Fetching…';
     const rows = await readChannelFeeds(chId, readKey, results);
-    setMergeStatus('Merging…');
+    $("#mergeStatus").textContent = 'Merging…';
     const merged = mergeSameChannel(rows, windowSec);
-    lastMerged = merged;
     renderTable(merged);
-    dlBtn.disabled = merged.length === 0;
+    $("#dlBtn").disabled = merged.length === 0;
   } catch (e) {
-    setMergeStatus(`Error: ${e.message}`, 'err');
+    $("#mergeStatus").textContent = `Error: ${e.message}`;
   }
 });
 
-document.getElementById('dlBtn').addEventListener('click', () => {
-  if (!lastMerged.length) return;
-  const blob = new Blob([toCSV(lastMerged)], {type:'text/csv'});
+$("#dlBtn").addEventListener('click', () => {
+  const rows = mergeSameChannel(lastFetched, windowSec);
+  const cols = ['created_at','pm1','pm25','pm10','co2','temp','hum','lat','lon','dt_s','speed_kmh','aqi'];
+  const lines = [cols.join(',')].concat(rows.map(r => cols.map(c => r[c]).join(',')));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'merged_thingspeak_with_distance.csv';
+  a.href = url; a.download = 'merged_thingspeak.csv';
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 });
 </script>
-
 </body>
 </html>
