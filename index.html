@@ -445,6 +445,7 @@ async function readChannelFeeds(channelId, readKey, results=40) {
   const u = new URL(base);
   if (readKey) u.searchParams.set('api_key', readKey);
   u.searchParams.set('results', results);
+  u.searchParams.set('timezone', 'Europe/Dublin'); 
   const r = await fetch(u, {cache:'no-store'});
   if (!r.ok) throw new Error(`TS read HTTP ${r.status}`);
   const j = await r.json();
