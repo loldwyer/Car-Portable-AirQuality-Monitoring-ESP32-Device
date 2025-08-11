@@ -224,10 +224,10 @@ iframe {
 
   <nav class="topnav">
   <ul>
-    <li><a href="#" onclick="showSection('sensor-overview')" class="navlink active">Sensor Overview</a></li>
-    <li><a href="#" onclick="showSection('hardware')" class="navlink">Hardware</a></li>
-    <li><a href="#" onclick="showSection('enclosure')" class="navlink">Enclosure & Mounting</a></li>
-    <li><a href="#" onclick="showSection('deployment')" class="navlink">Deployment</a></li>
+    <li><a href="#" onclick="event.preventDefault(); showSection('sensor-overview')" class="navlink active">Sensor Overview</a></li>
+    <li><a href="#" onclick="event.preventDefault(); showSection('hardware')" class="navlink">Hardware</a></li>
+    <li><a href="#" onclick="event.preventDefault(); showSection('enclosure')" class="navlink">Enclosure & Mounting</a></li>
+    <li><a href="#" onclick="event.preventDefault(); showSection('deployment')" class="navlink">Deployment</a></li>
   </ul>
 </nav>
 
@@ -619,6 +619,10 @@ $("#dlBtn").addEventListener('click', () => {
   a.remove();
   URL.revokeObjectURL(url);
 });
+
+    document.addEventListener('DOMContentLoaded', () => {
+    showSection('sensor-overview');
+  });
 
 </script>
 </body>
