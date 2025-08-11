@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>GPS → ThingSpeak (Auto-Parity) + Merge Viewer + Distance</title>
+  <title>v1GPS → ThingSpeak (Auto-Parity) + Merge Viewer + Distance</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -181,7 +181,6 @@ async function autoAlignParity(latJustSent, lonJustSent){
 }
 
 /* ==== GPS → ThingSpeak upload ==== */
-const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update.json";
 async function postToThingSpeak(lat, lon){
   try {
     const body = new URLSearchParams({
