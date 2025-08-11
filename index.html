@@ -284,14 +284,15 @@ iframe {
     </div>
   </div>
 </div>
-  <label for="sensorSelect"><strong>View by Sensor:</strong></label>
+<div class='row'>
+<h2>ThingSpeak Visualisations</h2>
+    <label for="sensorSelect"><strong>View by Sensor:</strong></label>
   <select id="sensorSelect" onchange="handleSensorSelect(this.value)">
     <option value="none">-- Select --</option>
     <option value="scd30">SCD30 (CO₂, Temp, RH)</option>
     <option value="sps30">SPS30 (PM1.0, PM2.5, PM10)</option>
     <option value="mics">MiCS-4514 (NO₂)</option>
   </select>
-<h2>ThingSpeak Visualisations</h2>
   <div class="tabs">
     <button class="tablink" onclick="showTab('co2', this)">CO₂</button>
     <button class="tablink" onclick="showTab('pm25', this)">PM2.5</button>
@@ -333,6 +334,7 @@ iframe {
     </div>
 
   </div>
+</div>
 </section>
 
 <!-- Hardware Section -->
