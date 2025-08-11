@@ -383,6 +383,58 @@ let mismatchCount = 0;
 const MIS_MATCH_TO_FLIP = 2;
 const currentSlot = () => Math.floor(Date.now() / SLOT_MS);
 
+
+  // ---------- TABS / NAV ----------
+  const tabGroups = {
+    scd30: ['co2', 'temp', 'rh'],
+    sps30: ['pm1', 'pm25', 'pm10'],
+    mics:  [] // MiCS is not GPS
+  };
+
+  function showTab(id, el) {
+    hideAllTabs();
+    const tab = document.getElementById(id);
+    if (tab) tab.style.display = 'block';
+    document.querySelectorAll('.tablink').forEach(btn => btn.classList.remove('active'));
+    if (el) el.classList.add('active');
+    document.getElementById('sensorSelect').value = 'none';
+
+    if (id === 'gps') ensureMapInit();
+  }
+
+  function handleSensorSelect(sensor) {
+    hideAllTabs();
+    if (sensor in tabGroups) {
+      tabGroups[sensor].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'block';
+      });
+      document.querySelectorAll('.tablink').forEach(btn => btn.classList.remove('active'));
+    }
+  }
+
+  function hideAllTabs() {
+    document.querySelectorAll('.tabcontent').forEach(el => el.style.display = 'none');
+  }
+
+  function showSection(sectionId) {
+    document.querySelectorAll("section").forEach(sec => sec.style.display = "none");
+    const target = document.getElementById(sectionId);
+    if (target) target.style.display = "block";
+    document.querySelectorAll(".navlink").forEach(link => link.classList.remove("active"));
+    const mapTxt = {
+      location: "Device Tracking",
+      "sensor-overview": "Sensor Overview",
+      hardware: "Hardware",
+      enclosure: "Enclosure",
+      deployment: "Deployment"
+    };
+    const txt = mapTxt[sectionId] || "";
+    [...document.querySelectorAll(".navlink")].forEach(l => {
+      if (l.textContent.includes(txt)) l.classList.add("active");
+    });
+  }
+
 async function readChannelFeeds(channelId, readKey, results=40) {
   const base = `https://api.thingspeak.com/channels/${channelId}/feeds.json`;
   const u = new URL(base);
