@@ -287,16 +287,14 @@ function mergeSameChannel(rows, windowSec){
       const dt = Math.abs(s.ts - g.ts);
       if (dt < bestDt && dt <= W) { best = g; bestDt = dt; }
     }
-    // Only push if GPS match found
-    if (best && Number.isFinite(best.lat) && Number.isFinite(best.lon)) {
-      out.push({
-        created_at: s.created_at,
-        pm1: s.pm1 ?? '', pm25: s.pm25 ?? '', pm10: s.pm10 ?? '',
-        co2: s.co2 ?? '', temp: s.temp ?? '', hum: s.hum ?? '',
-        lat: best.lat, lon: best.lon,
-        dt_s: Math.round(bestDt/1000)
-      });
-    }
+    out.push({
+      created_at: s.created_at,
+      pm1: s.pm1 ?? '', pm25: s.pm25 ?? '', pm10: s.pm10 ?? '',
+      co2: s.co2 ?? '', temp: s.temp ?? '', hum: s.hum ?? '',
+      lat: best ? best.lat : '',
+      lon: best ? best.lon : '',
+      dt_s: best ? Math.round(bestDt/1000) : ''
+    });
   }
   return out;
 }
