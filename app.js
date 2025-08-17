@@ -1,5 +1,5 @@
 
-const THINGSPEAK_WRITE_KEY = "9YXHS30JF6Z9YHXI";
+const THINGSPEAK_WRITE_KEY = "WRITE_KEY";
 const THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update.json";
 
 const $ = s => document.querySelector(s);
